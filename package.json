@@ -1,0 +1,11 @@
+{
+  "name": "homesi-dashboard",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

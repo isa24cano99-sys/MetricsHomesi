@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HOMESÍ — Realtors Dashboard</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700&family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+
+  <div class="topbar">
+    <div class="logo-mark">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+        <path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" />
+      </svg>
+    </div>
+    <span class="logo-text">HOME<span>SÍ</span></span>
+    <span style="font-size:12px;color:rgba(255,255,255,0.3);margin-left:2px;font-family:'Barlow',sans-serif">Realtors
+      Dashboard</span>
+    <span class="topbar-sub">Powered by Supreme Lending</span>
+    <button class="settings-btn" onclick="openSettings()"><i class="ti ti-settings"></i> Settings</button>
+    <div class="stripe"></div>
+  </div>
+
+  <div class="main">
+
+    <div id="status-bar" class="status-bar sb-load">
+      <i class="ti ti-database"></i>
+      <span id="status-text">Connecting to Supabase...</span>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <i class="ti ti-adjustments-horizontal" style="color:var(--hs-red);font-size:17px"></i>
+        <span class="card-title">Calculation Parameters</span>
+      </div>
+      <div class="cfg-grid">
+        <div class="cfg-group">
+          <label class="lbl">Cutoff Date</label>
+          <input type="date" id="cutoff-date">
+        </div>
+        <div class="cfg-group">
+          <label class="lbl">Search</label>
+          <select id="mode-selector" onchange="onModeSelect(this.value)" style="font-weight:600">
+            <option value="active">✅ Active realtors</option>
+            <option value="inactive">⏸ Inactive realtors</option>
+          </select>
+          <div class="hint">Select which group to analyze</div>
+        </div>
+        <div class="cfg-group active-g" id="cfg-active-window">
+          <label class="lbl">✅ Active Window (days)</label>
+          <input type="number" id="window-days" value="60" min="1">
+          <div class="hint">Active = leads in the last N days from cutoff</div>
+        </div>
+        <div class="cfg-group inactive-g" id="cfg-inactive-from" style="opacity:.4;pointer-events:none">
+          <label class="lbl">⏸ Inactive: search from</label>
+          <input type="date" id="inactive-from">
+          <div class="hint">Only inactive realtors with at least 1 lead since this date</div>
+        </div>
+        <div class="cfg-group inactive-g" id="cfg-react-days">
+          <label class="lbl">⏸ Reactivation threshold C4 (days)</label>
+          <input type="number" id="react-days" value="150" min="1">
+          <div class="hint">2nd to last lead before cutoff - N days</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="run-btn" id="run-btn" onclick="runCalc()" disabled>
+      <i class="ti ti-player-play"></i> Calculate Metrics
+    </button>
+
+    <div id="results" class="hidden">
+      <div class="mcards" id="summary-cards"></div>
+
+      <div class="tabs">
+        <button class="tab active" onclick="showTab('med')"><i class="ti ti-chart-bar"></i> Ratings</button>
+        <button class="tab" onclick="showTab('sc')"><i class="ti ti-trophy"></i> Scorecard</button>
+        <button class="tab" onclick="showTab('assign')"><i class="ti ti-checkbox"></i> Realtors <span class="tab-badge"
+            id="pending-badge">0</span></button>
+        <button class="tab" onclick="showTab('log')"><i class="ti ti-history"></i> History</button>
+      </div>
+
+      <!-- MEDICIONES -->
+      <div id="tab-med">
+        <div class="filters">
+          <select id="filter-med" multiple size="4" onchange="renderTable()">
+            <option value="">All Ratings</option>
+          </select>
+          <select id="filter-own" multiple size="4" onchange="renderTable()">
+            <option value="">All Owners</option>
+          </select>
+          <select id="filter-branch" multiple size="4" onchange="renderTable()">
+            <option value="">All Branches</option>
+          </select>
+          <button class="btn-sm" onclick="exportCSV()"><i class="ti ti-download"></i> CSV</button>
+        </div>
+        <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
+        <div class="twrap">
+          <table>
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SCORECARD -->
+      <div id="tab-sc" class="hidden">
+        <div class="filters" style="margin-bottom:16px;align-items:flex-end">
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+            <label class="lbl">Filter by Rating</label>
+            <select id="sc-filter-med" multiple size="4" onchange="refreshScorecard()"></select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+            <label class="lbl">Filter by Owner</label>
+            <select id="sc-filter-own" multiple size="4" onchange="refreshScorecard()"></select>
+          </div>
+          <button class="btn-sm" onclick="clearScorecardFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+        </div>
+        <div class="sc-grid" id="scorecard-grid"></div>
+      </div>
+
+      <!-- ASIGNACIONES -->
+      <div id="tab-assign" class="hidden">
+        <div class="assign-stats" id="assign-stats"></div>
+        <div class="assign-toolbar">
+          <input class="assign-search" id="assign-search" placeholder="Search realtor..." oninput="renderAssignCards()">
+          <button class="btn-sm btn-primary" onclick="saveAllAssignments()"><i class="ti ti-device-floppy"></i> Save All</button>
+          <button class="btn-sm" onclick="exportMasterCSV()"><i class="ti ti-download"></i> CSV</button>
+          <span id="assign-save-status" class="save-status"></span>
+        </div>
+        <div class="filters">
+          <select id="assign-filter-owner" multiple size="3" onchange="renderAssignCards()"></select>
+          <select id="assign-filter-branch" multiple size="3" onchange="renderAssignCards()"></select>
+          <select id="assign-filter-med" multiple size="3" onchange="renderAssignCards()"></select>
+          <select id="assign-filter-status" onchange="renderAssignCards()">
+            <option value="">All</option>
+            <option value="active">Active Only</option>
+            <option value="inactive">Inactive Only</option>
+            <option value="confirmed">Confirmed Only</option>
+            <option value="pending">Pending Only</option>
+            <option value="unassigned">No Owner</option>
+          </select>
+          <button class="btn-sm" id="btn-clear-assign-filters" onclick="clearAssignFilters()"><i class="ti ti-rotate"></i> Clear Filters</button>
+        </div>
+        <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
+        <div class="assign-cards" id="assign-cards"></div>
+      </div>
+
+      <!-- HISTORIAL -->
+      <div id="tab-log" class="hidden">
+        <div class="section-actions">
+          <span
+            style="font-size:10px;font-family:'Barlow',sans-serif;font-weight:700;color:#8899BB;text-transform:uppercase;letter-spacing:.4px">Change History</span>
+          <button class="btn-sm" style="margin-left:auto" onclick="exportLog()"><i class="ti ti-download"></i>
+            CSV</button>
+        </div>
+        <div id="log-list"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- SETTINGS PANEL -->
+  <div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-panel-header">
+      <span class="settings-panel-title"><i class="ti ti-settings"></i> Settings</span>
+      <button class="settings-panel-close" onclick="closeSettings()">&#10005;</button>
+    </div>
+    <div class="settings-panel-body">
+      <div class="settings-section-title">Upload Data</div>
+      <div class="uz" id="uz-leads" onclick="document.getElementById('fi-leads').click()">
+        <input type="file" id="fi-leads" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'leads')">
+        <div class="uz-icon"><i class="ti ti-users"></i></div>
+        <div class="uz-title" id="uz-leads-lbl">Leads Referred By</div>
+        <div class="uz-sub">Click to upload new file</div>
+        <div class="uz-saved hidden" id="uz-leads-saved"></div>
+        <div class="progress-bar hidden" id="pb-leads">
+          <div class="progress-fill" id="pf-leads" style="width:0%"></div>
+        </div>
+      </div>
+      <div class="uz" id="uz-opp" onclick="document.getElementById('fi-opp').click()" style="margin-top:10px">
+        <input type="file" id="fi-opp" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'opp')">
+        <div class="uz-icon"><i class="ti ti-building-community"></i></div>
+        <div class="uz-title" id="uz-opp-lbl">Opportunities</div>
+        <div class="uz-sub">Click to upload new file</div>
+        <div class="uz-saved hidden" id="uz-opp-saved"></div>
+        <div class="progress-bar hidden" id="pb-opp">
+          <div class="progress-fill" id="pf-opp" style="width:0%"></div>
+        </div>
+      </div>
+      <div class="settings-section-title" style="margin-top:20px">Group Owners</div>
+      <div class="cfg-group">
+        <label class="lbl">Owners <span style="font-weight:400;text-transform:none;font-size:10px;color:#99AABB">—
+            business developers — used for auto-assignment</span></label>
+        <textarea id="owners-list"
+          rows="5">"",  Belkys Armesto, Angie Cassiani, Annie Garrido, Javier Peñaloza, Josue Toro, Giovanni Osorio, Shirlis Naranjo, Samuel Tirado, Jose Falquez</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- DETAIL MODAL -->
+  <div id="detail-modal" class="modal-overlay hidden" onclick="closeModal(event)">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div style="flex:1">
+          <div class="modal-title" id="modal-title">Detail</div>
+          <div class="modal-sub" id="modal-sub"></div>
+        </div>
+        <button class="modal-close"
+          onclick="document.getElementById('detail-modal').classList.add('hidden')">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <table class="modal-table">
+          <thead id="modal-thead"></thead>
+          <tbody id="modal-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/modal.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/scorecard.js"></script>
+  <script src="js/assignments.js"></script>
+  <script src="js/log.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/app.js"></script>
+</body>
+
+</html>
