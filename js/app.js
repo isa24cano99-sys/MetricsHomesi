@@ -8,7 +8,7 @@ import { renderAssignCards, clearAssignFilters, confirmAssign, unconfirm, update
 import { renderLog } from './log.js';
 import { exportCSV, exportMasterCSV, exportLog, dl } from './export.js';
 import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, openModal, closeModal } from './modal.js';
-import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail } from './pipeline.js';
+import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, downloadCwOwnerCsv } from './pipeline.js';
 
 function setStatus(t, msg) {
   const bar = document.getElementById('status-bar');
@@ -109,6 +109,12 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-pl-owner][data-pl-stage]');
   if (!el) return;
   showPipelineStageDetail(el.getAttribute('data-pl-owner'), el.getAttribute('data-pl-stage'));
+});
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-cw-owner]');
+  if (!el) return;
+  downloadCwOwnerCsv(el.getAttribute('data-cw-owner'));
 });
 
 async function initApp() {
