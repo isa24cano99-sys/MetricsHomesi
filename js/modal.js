@@ -1,5 +1,40 @@
-function showScorecardDetail(owner, med) {
-  const rows = activeResults.filter(r => r.assignedOwner === owner && r.med === med);
+import { state } from './state.js';
+import { fmtDate, parseDate, getField, norm } from './utils.js';
+import { dl } from './export.js';
+
+export function openModal(title, sub, headHtml, bodyHtml, csvData) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-sub').textContent = sub;
+  const modalBody = document.querySelector('#detail-modal .modal-body');
+  if (headHtml) {
+    modalBody.innerHTML = '<table class="modal-table"><thead id="modal-thead"></thead><tbody id="modal-tbody"></tbody></table>';
+    document.getElementById('modal-thead').innerHTML = headHtml;
+    document.getElementById('modal-tbody').innerHTML = bodyHtml;
+  } else {
+    modalBody.innerHTML = bodyHtml;
+  }
+  let csvBtn = document.getElementById('modal-csv-btn');
+  if (!csvBtn) {
+    csvBtn = document.createElement('button');
+    csvBtn.id = 'modal-csv-btn';
+    csvBtn.className = 'modal-csv-btn';
+    document.querySelector('#detail-modal .modal-close').before(csvBtn);
+  }
+  csvBtn.style.display = csvData ? '' : 'none';
+  if (csvData) {
+    csvBtn.innerHTML = '<i class="ti ti-download"></i> Download CSV';
+    csvBtn.onclick = () => dl(csvData, 'detalle.csv');
+  }
+  document.getElementById('detail-modal').classList.remove('hidden');
+}
+
+export function closeModal(e) {
+  if (e.target === document.getElementById('detail-modal'))
+    document.getElementById('detail-modal').classList.add('hidden');
+}
+
+export function showScorecardDetail(owner, med) {
+  const rows = state.activeResults.filter(r => r.assignedOwner === owner && r.med === med);
   if (!rows.length) return;
 
   const cutoffStr = document.getElementById('cutoff-date').value;
@@ -62,56 +97,24 @@ function showScorecardDetail(owner, med) {
   );
 }
 
-function closeModal(e) {
-  if (e.target === document.getElementById('detail-modal'))
-    document.getElementById('detail-modal').classList.add('hidden');
-}
-
-function openModal(title, sub, headHtml, bodyHtml, csvData) {
-  document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-sub').textContent = sub;
-  const modalBody = document.querySelector('#detail-modal .modal-body');
-  if (headHtml) {
-    modalBody.innerHTML = '<table class="modal-table"><thead id="modal-thead"></thead><tbody id="modal-tbody"></tbody></table>';
-    document.getElementById('modal-thead').innerHTML = headHtml;
-    document.getElementById('modal-tbody').innerHTML = bodyHtml;
-  } else {
-    modalBody.innerHTML = bodyHtml;
-  }
-  let csvBtn = document.getElementById('modal-csv-btn');
-  if (!csvBtn) {
-    csvBtn = document.createElement('button');
-    csvBtn.id = 'modal-csv-btn';
-    csvBtn.className = 'modal-csv-btn';
-    document.querySelector('#detail-modal .modal-close').before(csvBtn);
-  }
-  csvBtn.style.display = csvData ? '' : 'none';
-  if (csvData) {
-    csvBtn.innerHTML = '<i class="ti ti-download"></i> Download CSV';
-    csvBtn.onclick = () => dl(csvData, 'detalle.csv');
-  }
-  document.getElementById('detail-modal').classList.remove('hidden');
-}
-
-function showLeadDetail(key, realtorName) {
-  var allResults = [...activeResults, ...inactiveResults];
-  var r = allResults.find(function (x) { return x.key === key; });
+export function showLeadDetail(key, realtorName) {
+  const allResults = [...state.activeResults, ...state.inactiveResults];
+  const r = allResults.find(x => x.key === key);
   if (!r || !r.leadRows || !r.leadRows.length) { alert('No leads available.'); return; }
-  var rows = r.leadRows;
-  var head = '<tr>' +
+  const rows = r.leadRows;
+  const head = '<tr>' +
     '<th>#</th>' +
     '<th>Lead Name</th>' +
     '<th>Lead Status</th>' +
     '<th>Created Date</th>' +
     '</tr>';
-  console.log('LEAD ROW SAMPLE:', JSON.stringify(rows[0]).slice(0, 300));
-  var body = rows.map(function (row, i) {
-    var fn = String(getField(row, 'First Name', 'first name') || '').trim();
-    var ln = String(getField(row, 'Last Name', 'last name') || '').trim();
-    var co = String(getField(row, 'Company / Account', 'company / account') || '').trim();
-    var name = (fn + ' ' + ln).trim() || co || '—';
-    var status = String(getField(row, 'Lead Status', 'lead status', 'status') || '—').trim();
-    var cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
+  const body = rows.map((row, i) => {
+    const fn = String(getField(row, 'First Name', 'first name') || '').trim();
+    const ln = String(getField(row, 'Last Name', 'last name') || '').trim();
+    const co = String(getField(row, 'Company / Account', 'company / account') || '').trim();
+    const name = (fn + ' ' + ln).trim() || co || '—';
+    const status = String(getField(row, 'Lead Status', 'lead status', 'status') || '—').trim();
+    const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
     return '<tr>' +
       '<td style="color:#8899BB;font-size:10px">' + (i + 1) + '</td>' +
       '<td style="font-weight:600">' + name + '</td>' +
@@ -126,29 +129,27 @@ function showLeadDetail(key, realtorName) {
   );
 }
 
-function showOppDetail(key, realtorName, colType) {
-  var allResults = [...activeResults, ...inactiveResults];
-  var r = allResults.find(function (x) { return x.key === key; });
+export function showOppDetail(key, realtorName, colType) {
+  const allResults = [...state.activeResults, ...state.inactiveResults];
+  const r = allResults.find(x => x.key === key);
   if (!r || !r.oppRows || !r.oppRows.length) { alert('No opportunities available.'); return; }
 
-  var cutoffStr = document.getElementById('cutoff-date').value;
-  var windowDays = parseInt(document.getElementById('window-days').value) || 60;
-  var cutoff = new Date(cutoffStr + 'T23:59:59Z');
-  var floorDate = new Date(cutoff); floorDate.setUTCDate(floorDate.getUTCDate() - windowDays);
+  const cutoffStr = document.getElementById('cutoff-date').value;
+  const windowDays = parseInt(document.getElementById('window-days').value) || 60;
+  const cutoff = new Date(cutoffStr + 'T23:59:59Z');
+  const floorDate = new Date(cutoff); floorDate.setUTCDate(floorDate.getUTCDate() - windowDays);
 
-  var filtered = r.oppRows.filter(function (row) {
-    var stage = String(getField(row, 'Stage', 'stage') || '').trim().toLowerCase();
-    var disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
-    var paDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'pre approved date'));
-    var ratDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
-    var isCW = stage === 'closed won' && disbDate && disbDate >= floorDate && disbDate <= cutoff;
-    var isRat = ratDate && ratDate >= floorDate && ratDate <= cutoff;
-    var isPA = paDate && paDate >= floorDate && paDate <= cutoff;
-    // Block 1: Closed Lost counts for PA and Ratified but NOT Closed Won
+  const filtered = r.oppRows.filter(row => {
+    const stage = String(getField(row, 'Stage', 'stage') || '').trim().toLowerCase();
+    const disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
+    const paDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'pre approved date'));
+    const ratDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
+    const isCW = stage === 'closed won' && disbDate && disbDate >= floorDate && disbDate <= cutoff;
+    const isRat = ratDate && ratDate >= floorDate && ratDate <= cutoff;
+    const isPA = paDate && paDate >= floorDate && paDate <= cutoff;
     if (colType === 'pa') return isPA;
     if (colType === 'rat') return isRat;
     if (colType === 'cw') return isCW;
-    // Block 2: Closed Lost excluded entirely
     if (stage === 'closed lost') return false;
     if (colType === 'curCw') return isCW;
     if (colType === 'curRat') return !isCW && isRat;
@@ -158,14 +159,14 @@ function showOppDetail(key, realtorName, colType) {
 
   if (!filtered.length) { alert('No opportunities found for this filter.'); return; }
 
-  var labels = {
+  const labels = {
     pa: 'Leads w/ Pre-Approval', rat: 'Leads w/ Ratified', cw: 'Leads Closed Won',
     curPa: 'Curr. Pre-Approval', curRat: 'Curr. Ratified', curCw: 'Curr. Closed Won'
   };
-  var dateLabel = { pa: 'Pre-Approval Date', rat: 'Ratified Date', cw: 'Disbursement Date', curPa: 'Pre-Approval Date', curRat: 'Ratified Date', curCw: 'Disbursement Date' };
-  var stageCls = { pa: 'stage-pa', rat: 'stage-rat', cw: 'stage-cw', curPa: 'stage-pa', curRat: 'stage-rat', curCw: 'stage-cw' };
+  const dateLabel = { pa: 'Pre-Approval Date', rat: 'Ratified Date', cw: 'Disbursement Date', curPa: 'Pre-Approval Date', curRat: 'Ratified Date', curCw: 'Disbursement Date' };
+  const stageCls = { pa: 'stage-pa', rat: 'stage-rat', cw: 'stage-cw', curPa: 'stage-pa', curRat: 'stage-rat', curCw: 'stage-cw' };
 
-  var head = '<tr>' +
+  const head = '<tr>' +
     '<th>#</th>' +
     '<th>Loan #</th>' +
     '<th>Opportunity Name</th>' +
@@ -176,21 +177,21 @@ function showOppDetail(key, realtorName, colType) {
     '<th>Stage</th>' +
     '</tr>';
 
-  var body = filtered.map(function (row, i) {
-    var oppName = String(getField(row, 'Opportunity Name', 'opportunity name') || '—').trim();
-    var lo = String(getField(row, 'Loan Officer', 'loan officer', 'Loan Officers', 'loan officers') || '—').trim();
-    var branch = String(getField(row, 'Branch', 'branch') || '—').trim();
-    var amt = getField(row, 'Loan Amount', 'loan amount', 'Loan #', 'loan #');
-    var amtFmt = amt ? '$' + Number(amt).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—';
-    var stage = String(getField(row, 'Stage', 'stage') || '—').trim();
-    var disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
-    var paDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'pre approved date'));
-    var ratDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
-    var dateVal = null;
+  const body = filtered.map((row, i) => {
+    const oppName = String(getField(row, 'Opportunity Name', 'opportunity name') || '—').trim();
+    const lo = String(getField(row, 'Loan Officer', 'loan officer', 'Loan Officers', 'loan officers') || '—').trim();
+    const branch = String(getField(row, 'Branch', 'branch') || '—').trim();
+    const amt = getField(row, 'Loan Amount', 'loan amount', 'Loan #', 'loan #');
+    const amtFmt = amt ? '$' + Number(amt).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—';
+    const stage = String(getField(row, 'Stage', 'stage') || '—').trim();
+    const disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
+    const paDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'pre approved date'));
+    const ratDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
+    let dateVal = null;
     if (colType === 'pa' || colType === 'curPa') dateVal = paDate;
     else if (colType === 'rat' || colType === 'curRat') dateVal = ratDate;
     else if (colType === 'cw' || colType === 'curCw') dateVal = disbDate;
-    var lnNum = String(getField(row, 'Loan #', 'loan #') || '—').trim();
+    const lnNum = String(getField(row, 'Loan #', 'loan #') || '—').trim();
     return '<tr>' +
       '<td style="color:#8899BB;font-size:10px">' + (i + 1) + '</td>' +
       '<td style="font-family:monospace;font-size:10px;color:#556080">' + lnNum + '</td>' +
@@ -206,19 +207,19 @@ function showOppDetail(key, realtorName, colType) {
   const csvData = [
     ['#', 'Loan #', 'Opportunity Name', 'Loan Officer', 'Branch', 'Loan Amount', dateLabel[colType], 'Stage'],
     ...filtered.map((row, i) => {
-      var oppName = String(getField(row, 'Opportunity Name', 'opportunity name') || '').trim();
-      var lo = String(getField(row, 'Loan Officer', 'loan officer', 'Loan Officers', 'loan officers') || '').trim();
-      var branch = String(getField(row, 'Branch', 'branch') || '').trim();
-      var amt = getField(row, 'Loan Amount', 'loan amount', 'Loan #', 'loan #');
-      var stage = String(getField(row, 'Stage', 'stage') || '').trim();
-      var disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
-      var paDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'pre approved date'));
-      var ratDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
-      var dateVal = null;
+      const oppName = String(getField(row, 'Opportunity Name', 'opportunity name') || '').trim();
+      const lo = String(getField(row, 'Loan Officer', 'loan officer', 'Loan Officers', 'loan officers') || '').trim();
+      const branch = String(getField(row, 'Branch', 'branch') || '').trim();
+      const amt = getField(row, 'Loan Amount', 'loan amount', 'Loan #', 'loan #');
+      const stage = String(getField(row, 'Stage', 'stage') || '').trim();
+      const disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
+      const paDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'pre approved date'));
+      const ratDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
+      let dateVal = null;
       if (colType === 'pa' || colType === 'curPa') dateVal = paDate;
       else if (colType === 'rat' || colType === 'curRat') dateVal = ratDate;
       else if (colType === 'cw' || colType === 'curCw') dateVal = disbDate;
-      var lnNum = String(getField(row, 'Loan #', 'loan #') || '').trim();
+      const lnNum = String(getField(row, 'Loan #', 'loan #') || '').trim();
       return [i + 1, lnNum, oppName, lo, branch, amt || '', fmtDate(dateVal), stage];
     })
   ];
@@ -230,10 +231,10 @@ function showOppDetail(key, realtorName, colType) {
   );
 }
 
-function showAllLeadsForRealtor(key, realtorName) {
+export function showAllLeadsForRealtor(key, realtorName) {
   const decodedKey = decodeURIComponent(key);
 
-  const allLeads = (leadsData || []).filter(row => {
+  const allLeads = (state.leadsData || []).filter(row => {
     const ref = getField(row, 'Referred By', 'referred by');
     return ref && norm(String(ref)) === decodedKey;
   });
@@ -243,7 +244,7 @@ function showAllLeadsForRealtor(key, realtorName) {
     return (da || 0) - (db || 0);
   });
 
-  const allResults = activeResults.concat(inactiveResults);
+  const allResults = state.activeResults.concat(state.inactiveResults);
   const r = allResults.find(x => x.key === decodedKey);
   const allOpps = (r && r.oppRows) ? r.oppRows : [];
 
@@ -263,7 +264,6 @@ function showAllLeadsForRealtor(key, realtorName) {
   const secStyle = 'font-family:\'Barlow\',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--hs-red);margin-bottom:8px';
   const divStyle = 'border-top:2px solid var(--hs-red);margin:20px 0 12px';
 
-  // ── Leads section ──────────────────────────────────────────────────────────
   const leadsHead = '<tr><th>#</th><th>Lead Name</th><th>Owner/BD</th><th>Created Date</th><th>Branch</th></tr>';
   const leadsBody = allLeads.map((row, i) => {
     const fn     = String(getField(row, 'First Name', 'first name') || '').trim();
@@ -281,7 +281,6 @@ function showAllLeadsForRealtor(key, realtorName) {
       '</tr>';
   }).join('');
 
-  // ── Opps section ───────────────────────────────────────────────────────────
   function stageColor(s) {
     const sl = (s || '').toLowerCase();
     if (sl === 'closed won')  return '#085041';
@@ -333,7 +332,6 @@ function showAllLeadsForRealtor(key, realtorName) {
       '<table class="modal-table"><thead>' + oppsHead + '</thead><tbody>' + oppsBody + '</tbody></table>' +
     '</div>';
 
-  // ── CSV combinado ──────────────────────────────────────────────────────────
   const csvData = [
     ['LEADS'],
     ['#', 'Lead Name', 'Realtor', 'Owner/BD', 'Created Date', 'Branch'],

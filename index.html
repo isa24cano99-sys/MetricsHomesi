@@ -84,6 +84,7 @@
         <button class="tab" onclick="showTab('assign')"><i class="ti ti-checkbox"></i> Realtors <span class="tab-badge"
             id="pending-badge">0</span></button>
         <button class="tab" onclick="showTab('log')"><i class="ti ti-history"></i> History</button>
+        <button class="tab" onclick="showTab('pipeline')"><i class="ti ti-git-branch"></i> Pipeline</button>
       </div>
 
       <!-- MEDICIONES -->
@@ -123,6 +124,12 @@
           <button class="btn-sm" onclick="clearScorecardFilters()"><i class="ti ti-x"></i> Clear Filters</button>
         </div>
         <div class="sc-grid" id="scorecard-grid"></div>
+        <div id="rankings-section" class="hidden">
+          <div class="rankings-cols">
+            <div id="ranking-hunting"></div>
+            <div id="ranking-farming"></div>
+          </div>
+        </div>
       </div>
 
       <!-- ASIGNACIONES -->
@@ -150,6 +157,45 @@
         </div>
         <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
         <div class="assign-cards" id="assign-cards"></div>
+      </div>
+
+      <!-- PIPELINE -->
+      <div id="tab-pipeline" class="hidden">
+        <div class="pl-section-header">
+          <i class="ti ti-git-branch" style="font-size:16px;color:var(--hs-red)"></i>
+          <span class="pl-section-title">Open Pipeline</span>
+        </div>
+        <div class="filters" style="margin-bottom:12px;align-items:flex-end">
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+            <label class="lbl">Filter by Owner</label>
+            <select id="pl-filter-owner" multiple size="4" onchange="renderPipeline()"></select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:170px">
+            <label class="lbl">Active if lead since</label>
+            <input type="date" id="pl-inactive-cutoff" onchange="renderPipeline()">
+            <div class="hint">Realtor is active if they shared a lead on or after this date</div>
+          </div>
+          <button class="btn-sm" onclick="clearPipelineFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+        </div>
+        <div class="filter-hint">Ctrl+click to select multiple &middot; click a stage chip to view detail</div>
+        <div id="pl-pipeline-content" style="margin-top:14px"></div>
+
+        <div class="pl-section-header" style="margin-top:32px">
+          <i class="ti ti-circle-check" style="font-size:16px;color:#085041"></i>
+          <span class="pl-section-title">Closed Won</span>
+        </div>
+        <div class="filters" style="margin-bottom:12px;align-items:flex-end">
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
+            <label class="lbl">Year</label>
+            <select id="pl-cw-year" multiple size="3" onchange="renderClosedWon()"></select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
+            <label class="lbl">Month</label>
+            <select id="pl-cw-month" multiple size="3" onchange="renderClosedWon()"></select>
+          </div>
+        </div>
+        <div class="filter-hint">Ctrl+click to select multiple</div>
+        <div id="pl-cw-content" style="margin-top:14px"></div>
       </div>
 
       <!-- HISTORIAL -->
@@ -226,17 +272,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="js/config.js"></script>
-  <script src="js/utils.js"></script>
-  <script src="js/supabase.js"></script>
-  <script src="js/modal.js"></script>
-  <script src="js/calc.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/scorecard.js"></script>
-  <script src="js/assignments.js"></script>
-  <script src="js/log.js"></script>
-  <script src="js/export.js"></script>
-  <script src="js/app.js"></script>
+  <script type="module" src="/js/app.js"></script>
 </body>
 
 </html>

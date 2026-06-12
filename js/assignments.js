@@ -1,4 +1,11 @@
-function clearAssignFilters() {
+import { state } from './state.js';
+import { norm, getField, fmtNow, initials } from './utils.js';
+import { BADGE } from './config.js';
+import { sbFetch } from './supabase.js';
+import { renderSummary } from './ui.js';
+import { renderLog } from './log.js';
+
+export function clearAssignFilters() {
   ['assign-filter-owner', 'assign-filter-branch', 'assign-filter-med'].forEach(id => {
     const el = document.getElementById(id);
     if (el) Array.from(el.options).forEach(o => o.selected = false);
@@ -9,41 +16,40 @@ function clearAssignFilters() {
 }
 
 function getAssignStatus(key) {
-  const m = masterMap.get(key);
+  const m = state.masterMap.get(key);
   if (!m || !m.owner) return 'unassigned';
   if (m.confirmed === true || m.confirmed === 'true') return 'confirmed';
   return 'pending';
 }
 
-function renderAssignCards() {
+export function renderAssignCards() {
   const search = document.getElementById('assign-search').value.toLowerCase();
   const filterStatus = document.getElementById('assign-filter-status').value;
   const filterOwners = Array.from(document.getElementById('assign-filter-owner').selectedOptions).map(o => o.value).filter(Boolean);
-  const owners = document.getElementById('owners-list').value.split(',').map(s => s.trim()).filter(Boolean);
-  const allResults = [...activeResults, ...inactiveResults];
+  const owners = document.getElementById('owners-list').value.split(',').map(s => s.trim().replace(/^["']+|["']+$/g, '').trim()).filter(s => s !== '');
+  const allResults = [...state.activeResults, ...state.inactiveResults];
 
   const leadCountMap = new Map();
-  for (const row of (leadsData || [])) {
+  for (const row of (state.leadsData || [])) {
     const ref = getField(row, 'Referred By', 'referred by');
     if (ref) { const k = norm(String(ref)); leadCountMap.set(k, (leadCountMap.get(k) || 0) + 1); }
   }
   const oppCountMap = new Map();
-  for (const row of (oppData || [])) {
+  for (const row of (state.oppData || [])) {
     const ref = getField(row, 'Referred By', 'referred by');
     if (ref) { const k = norm(String(ref)); oppCountMap.set(k, (oppCountMap.get(k) || 0) + 1); }
   }
 
-  // Populate branch filter preserving selections
   const branchEl = document.getElementById('assign-filter-branch');
   const prevBranches = Array.from(branchEl.selectedOptions).map(o => o.value);
-  const availBranches = [...new Set(allResults.map(r => r.assignedBranch).filter(Boolean))].sort();
+  const availBranches = [...new Set(allResults.map(r => r.assignedBranch).filter(b => b && b.trim() !== ''))].sort();
   branchEl.innerHTML = availBranches.map(b => '<option value="' + b + '"' + (prevBranches.includes(b) ? ' selected' : '') + '>' + b + '</option>').join('');
   const filterBranches = Array.from(branchEl.selectedOptions).map(o => o.value).filter(Boolean);
 
   const medEl = document.getElementById('assign-filter-med');
   const prevMeds = Array.from(medEl.selectedOptions).map(o => o.value);
-  const activeMeds = [...new Set(activeResults.map(r => r.med))].sort();
-  const medOpts = [...activeMeds, ...(inactiveResults.length ? ['Inactive'] : [])];
+  const activeMeds = [...new Set(state.activeResults.map(r => r.med))].sort();
+  const medOpts = [...activeMeds, ...(state.inactiveResults.length ? ['Inactive'] : [])];
   medEl.innerHTML = medOpts.map(m => '<option value="' + m + '"' + (prevMeds.includes(m) ? ' selected' : '') + '>' + m + '</option>').join('');
   const filterMeds = Array.from(medEl.selectedOptions).map(o => o.value).filter(Boolean);
 
@@ -71,11 +77,11 @@ function renderAssignCards() {
     ['ti-alert-circle', 'No Owner', unassigned, 'chip-unassigned'],
   ].map(([ic, l, v]) => '<div class="astat"><i class="ti ' + ic + ' astat-icon"></i><div><div class="astat-val">' + v + '</div><div class="astat-lbl">' + l + '</div></div></div>').join('');
 
-  const filtActive = activeResults.filter(r =>
+  const filtActive = state.activeResults.filter(r =>
     (!filterOwners.length || filterOwners.includes(r.assignedOwner)) &&
     (!filterBranches.length || filterBranches.includes(r.assignedBranch))
   );
-  const filtInactive = inactiveResults.filter(r =>
+  const filtInactive = state.inactiveResults.filter(r =>
     (!filterOwners.length || filterOwners.includes(r.assignedOwner)) &&
     (!filterBranches.length || filterBranches.includes(r.assignedBranch))
   );
@@ -98,7 +104,7 @@ function renderAssignCards() {
 
   document.getElementById('assign-cards').innerHTML = items.map(r => {
     const st = getAssignStatus(r.key);
-    const m = masterMap.get(r.key) || { owner: '', branch: '' };
+    const m = state.masterMap.get(r.key) || { owner: '', branch: '' };
     const ownerOpts = owners.map(o => '<option value="' + o + '"' + (o === m.owner ? ' selected' : '') + '>' + o + '</option>').join('');
     const statusChip = st === 'confirmed'
       ? '<span class="status-chip chip-confirmed"><i class="ti ti-circle-check"></i> Confirmed</span>'
@@ -132,51 +138,51 @@ function renderAssignCards() {
   }).join('');
 }
 
-function updateAssign(key, field, value) {
-  const m = masterMap.get(key) || { name: key, owner: '', branch: '', source: 'auto', updatedAt: fmtNow(), confirmed: false };
+export function updateAssign(key, field, value) {
+  const m = state.masterMap.get(key) || { name: key, owner: '', branch: '', source: 'auto', updatedAt: fmtNow(), confirmed: false };
   if (field === 'owner') m.owner = value;
   if (field === 'branch') m.branch = value;
   m.source = 'manual'; m.updatedAt = fmtNow(); m.confirmed = false;
-  masterMap.set(key, m);
-  for (const r of [...activeResults, ...inactiveResults]) {
+  state.masterMap.set(key, m);
+  for (const r of [...state.activeResults, ...state.inactiveResults]) {
     if (r.key === key) { r.assignedOwner = m.owner; r.assignedBranch = m.branch; }
   }
 }
 
-function confirmAssign(key) {
-  const m = masterMap.get(key) || { name: key, owner: '', branch: '', source: 'manual', updatedAt: fmtNow(), confirmed: false };
+export function confirmAssign(key) {
+  const m = state.masterMap.get(key) || { name: key, owner: '', branch: '', source: 'manual', updatedAt: fmtNow(), confirmed: false };
   const safeKey = key.replace(/[^a-z0-9]/g, '_');
   const ownerEl = document.getElementById('ao_' + safeKey);
   const branchEl = document.getElementById('ab_' + safeKey);
   if (ownerEl) m.owner = ownerEl.value;
   if (branchEl) m.branch = branchEl.value;
-  const old = masterMap.get(key) || {};
+  const old = state.masterMap.get(key) || {};
   if (old.owner !== m.owner || old.branch !== m.branch) {
     const entry = { date: fmtNow(), realtor: m.name || key, from: (old.owner || '–') + ' / ' + (old.branch || '–'), to: m.owner + ' / ' + m.branch };
-    changeLog.unshift(entry);
+    state.changeLog.unshift(entry);
     sbFetch('change_log', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({ change_date: entry.date, realtor: entry.realtor, from_assignment: entry.from, to_assignment: entry.to }) }).catch(() => {});
   }
   m.confirmed = true; m.source = 'manual'; m.updatedAt = fmtNow();
-  masterMap.set(key, m);
-  for (const r of [...activeResults, ...inactiveResults]) {
+  state.masterMap.set(key, m);
+  for (const r of [...state.activeResults, ...state.inactiveResults]) {
     if (r.key === key) { r.assignedOwner = m.owner; r.assignedBranch = m.branch; r.confirmed = true; }
   }
   renderAssignCards();
   renderLog();
 }
 
-function unconfirm(key) {
-  const m = masterMap.get(key);
-  if (m) { m.confirmed = false; masterMap.set(key, m); }
-  for (const r of [...activeResults, ...inactiveResults]) { if (r.key === key) r.confirmed = false; }
+export function unconfirm(key) {
+  const m = state.masterMap.get(key);
+  if (m) { m.confirmed = false; state.masterMap.set(key, m); }
+  for (const r of [...state.activeResults, ...state.inactiveResults]) { if (r.key === key) r.confirmed = false; }
   renderAssignCards();
 }
 
-async function saveAllAssignments() {
+export async function saveAllAssignments() {
   const st = document.getElementById('assign-save-status');
   st.textContent = 'Saving...';
   try {
-    const rows = [...masterMap.entries()].map(([key, m]) => ({
+    const rows = [...state.masterMap.entries()].map(([key, m]) => ({
       realtor_key: key, realtor_name: m.name || '', owner: m.owner || '', branch: m.branch || '',
       source: m.source || 'auto', updated_at: m.updatedAt || '', confirmed: m.confirmed || false
     }));

@@ -1,7 +1,7 @@
-const SB_URL = 'https://xxayufvjvxfyxgqepaov.supabase.co';
-const SB_KEY = 'sb_publishable_SpckGJgWyFYcTr99HpRz7Q_PsbVHbQi';
+export const SB_URL = 'https://xxayufvjvxfyxgqepaov.supabase.co';
+export const SB_KEY = 'sb_publishable_SpckGJgWyFYcTr99HpRz7Q_PsbVHbQi';
 
-const BADGE = {
+export const BADGE = {
   'Hunting New': 'b-hn',
   'Hunting New - Pre Approval': 'b-hnp',
   'Hunting New - Ratified': 'b-hnr',
@@ -17,10 +17,3 @@ const BADGE = {
   'Sin medición': 'b-sin',
   'Inactive': 'b-inactive'
 };
-
-let leadsData = null, oppData = null;
-let activeResults = [], inactiveResults = [];
-let masterMap = new Map();
-let changeLog = [];
-let currentMode = 'active', sortCol = 'cnt', sortDir = -1;
-let dbConnected = false;

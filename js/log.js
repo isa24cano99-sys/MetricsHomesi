@@ -1,10 +1,12 @@
-function renderLog() {
+import { state } from './state.js';
+
+export function renderLog() {
   const list = document.getElementById('log-list');
-  if (!changeLog.length) {
+  if (!state.changeLog.length) {
     list.innerHTML = '<div class="empty-state">No changes recorded yet</div>';
     return;
   }
-  list.innerHTML = changeLog.map(e =>
+  list.innerHTML = state.changeLog.map(e =>
     '<div class="log-entry">' +
       '<span class="log-date">' + e.date + '</span>' +
       '<span><strong>' + e.realtor + '</strong>: ' + e.from + ' → ' + e.to + '</span>' +
