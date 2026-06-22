@@ -49,6 +49,7 @@ export function showScorecardDetail(owner, med) {
     '<th>Realtor</th>' +
     '<th>Branch</th>' +
     '<th>Period Leads</th>' +
+    '<th>Converted Leads</th>' +
     '<th>1st Lead</th>' +
     '<th>2nd to Last Lead</th>' +
     '<th>Leads w/ Pre-Appr</th>' +
@@ -65,6 +66,7 @@ export function showScorecardDetail(owner, med) {
     '<td style="font-weight:600">' + r.name + '</td>' +
     '<td>' + (r.assignedBranch || '—') + '</td>' +
     '<td style="text-align:center"><span class="clickable-num" data-rkey="' + encodeURIComponent(r.key) + '" data-dtype="leads" title="View leads">' + r.cnt + '</span></td>' +
+    '<td style="text-align:center;font-weight:700">' + (r.convertedCount ? '<span class="clickable-num" data-rkey="' + encodeURIComponent(r.key) + '" data-dtype="converted" title="View converted leads">' + r.convertedCount + '</span>' : '&#8211;') + '</td>' +
     '<td class="dt">' + fmtDate(r.firstDate) + '</td>' +
     '<td class="dt">' + fmtDate(r.penult) + '</td>' +
     '<td style="text-align:center;color:' + (r.pa ? '#185FA5' : '#CCD5E0') + '">' + (r.pa || '—') + '</td>' +
@@ -77,11 +79,11 @@ export function showScorecardDetail(owner, med) {
   ).join('');
 
   const csvData = [
-    ['#', 'Realtor', 'Branch', 'Period Leads', '1st Lead', '2nd to Last Lead',
+    ['#', 'Realtor', 'Branch', 'Period Leads', 'Converted Leads', '1st Lead', '2nd to Last Lead',
      'Leads w/ Pre-Appr', 'Leads w/ Ratified', 'Leads Closed Won',
      'Curr. Pre-Approval', 'Curr. Ratified', 'Curr. Closed Won'],
     ...rows.map((r, i) => [
-      i + 1, r.name, r.assignedBranch || '', r.cnt,
+      i + 1, r.name, r.assignedBranch || '', r.cnt, r.convertedCount || 0,
       fmtDate(r.firstDate), fmtDate(r.penult),
       r.pa || 0, r.rat || 0, r.cw || 0,
       r.curPa || 0, r.curRat || 0, r.curCw || 0
@@ -231,6 +233,67 @@ export function showOppDetail(key, realtorName, colType) {
   );
 }
 
+export function showConvertedLeadsDetail(key, realtorName) {
+  const cutoffStr = document.getElementById('cutoff-date').value;
+  const windowDays = parseInt(document.getElementById('window-days').value) || 60;
+  const cutoff = new Date(cutoffStr + 'T23:59:59Z');
+  const floorDate = new Date(cutoff);
+  floorDate.setUTCDate(floorDate.getUTCDate() - windowDays);
+  floorDate.setUTCHours(0, 0, 0, 0);
+
+  const allResults = [...state.activeResults, ...state.inactiveResults];
+  const r = allResults.find(x => x.key === key);
+  if (!r || !r.leadRows || !r.leadRows.length) { alert('No converted leads available.'); return; }
+
+  const rows = r.leadRows.filter(row => {
+    const v = getField(row, 'Converted', 'converted');
+    return v === true || String(v || '').trim().toLowerCase() === 'true';
+  });
+  if (!rows.length) { alert('No converted leads found in the selected window.'); return; }
+
+  const head = '<tr>' +
+    '<th>#</th>' +
+    '<th>Lead Name</th>' +
+    '<th>Owner/BD</th>' +
+    '<th>Created Date</th>' +
+    '<th>Lead Status</th>' +
+    '</tr>';
+
+  const body = rows.map((row, i) => {
+    const fn = String(getField(row, 'First Name', 'first name') || '').trim();
+    const ln = String(getField(row, 'Last Name', 'last name') || '').trim();
+    const name = (fn + ' ' + ln).trim() || '—';
+    const owner = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '—').trim();
+    const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
+    const status = String(getField(row, 'Lead Status', 'lead status', 'status') || '—').trim();
+    return '<tr>' +
+      '<td style="color:#8899BB;font-size:10px">' + (i + 1) + '</td>' +
+      '<td style="font-weight:600">' + name + '</td>' +
+      '<td>' + owner + '</td>' +
+      '<td class="dt">' + fmtDate(cd) + '</td>' +
+      '<td><span class="modal-stage stage-other">' + status + '</span></td>' +
+      '</tr>';
+  }).join('');
+
+  const csvData = [
+    ['#', 'Lead Name', 'Owner/BD', 'Created Date', 'Lead Status'],
+    ...rows.map((row, i) => {
+      const fn = String(getField(row, 'First Name', 'first name') || '').trim();
+      const ln = String(getField(row, 'Last Name', 'last name') || '').trim();
+      const owner = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '').trim();
+      const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
+      const status = String(getField(row, 'Lead Status', 'lead status', 'status') || '').trim();
+      return [i + 1, (fn + ' ' + ln).trim() || '', owner, fmtDate(cd), status];
+    })
+  ];
+
+  openModal(
+    realtorName + ' — Converted Leads',
+    rows.length + ' converted lead' + (rows.length !== 1 ? 's' : '') + ' · window: ' + fmtDate(floorDate) + ' → ' + fmtDate(cutoff),
+    head, body, csvData
+  );
+}
+
 export function showAllLeadsForRealtor(key, realtorName) {
   const decodedKey = decodeURIComponent(key);
 
@@ -256,7 +319,12 @@ export function showAllLeadsForRealtor(key, realtorName) {
   const firstDate = allLeads.length ? parseDate(getField(allLeads[0], 'Created Date', 'Create Date', 'created date')) : null;
   const lastDate  = allLeads.length ? parseDate(getField(allLeads[allLeads.length - 1], 'Created Date', 'Create Date', 'created date')) : null;
 
+  const convertedLeadsCount = allLeads.filter(row => {
+    const v = getField(row, 'Converted', 'converted');
+    return v === true || String(v || '').trim().toLowerCase() === 'true';
+  }).length;
   const sub = allLeads.length + ' lead' + (allLeads.length !== 1 ? 's' : '') +
+    ' · ' + convertedLeadsCount + ' converted' +
     (firstDate ? ' · oldest: ' + fmtDate(firstDate) : '') +
     (lastDate  ? ' · most recent: ' + fmtDate(lastDate) : '') +
     ' · ' + allOpps.length + ' opportunit' + (allOpps.length !== 1 ? 'ies' : 'y');
@@ -264,7 +332,7 @@ export function showAllLeadsForRealtor(key, realtorName) {
   const secStyle = 'font-family:\'Barlow\',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--hs-red);margin-bottom:8px';
   const divStyle = 'border-top:2px solid var(--hs-red);margin:20px 0 12px';
 
-  const leadsHead = '<tr><th>#</th><th>Lead Name</th><th>Owner/BD</th><th>Created Date</th><th>Branch</th></tr>';
+  const leadsHead = '<tr><th>#</th><th>Lead Name</th><th>Owner/BD</th><th>Created Date</th><th>Branch</th><th>Converted</th></tr>';
   const leadsBody = allLeads.map((row, i) => {
     const fn     = String(getField(row, 'First Name', 'first name') || '').trim();
     const ln     = String(getField(row, 'Last Name', 'last name') || '').trim();
@@ -272,12 +340,15 @@ export function showAllLeadsForRealtor(key, realtorName) {
     const owner  = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '—').trim();
     const cd     = parseDate(getField(row, 'Created Date', 'Create Date', 'created date'));
     const branch = String(getField(row, 'Branch', 'branch') || '—').trim();
+    const convVal = getField(row, 'Converted', 'converted');
+    const isConv = convVal === true || String(convVal || '').trim().toLowerCase() === 'true';
     return '<tr>' +
       '<td style="color:#8899BB;font-size:10px">' + (i + 1) + '</td>' +
       '<td style="font-weight:600">' + leadName + '</td>' +
       '<td>' + owner + '</td>' +
       '<td class="dt">' + fmtDate(cd) + '</td>' +
       '<td>' + branch + '</td>' +
+      '<td style="text-align:center">' + (isConv ? '<span class="pl-status-chip pl-chip-active">Yes</span>' : '<span class="pl-status-chip pl-chip-unknown">No</span>') + '</td>' +
       '</tr>';
   }).join('');
 
@@ -334,7 +405,7 @@ export function showAllLeadsForRealtor(key, realtorName) {
 
   const csvData = [
     ['LEADS'],
-    ['#', 'Lead Name', 'Realtor', 'Owner/BD', 'Created Date', 'Branch'],
+    ['#', 'Lead Name', 'Realtor', 'Owner/BD', 'Created Date', 'Branch', 'Converted'],
     ...allLeads.map((row, i) => {
       const fn     = String(getField(row, 'First Name', 'first name') || '').trim();
       const ln     = String(getField(row, 'Last Name', 'last name') || '').trim();
@@ -342,7 +413,9 @@ export function showAllLeadsForRealtor(key, realtorName) {
       const owner  = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '').trim();
       const cd     = parseDate(getField(row, 'Created Date', 'Create Date', 'created date'));
       const branch = String(getField(row, 'Branch', 'branch') || '').trim();
-      return [i + 1, leadName, realtorName, owner, fmtDate(cd), branch];
+      const convVal = getField(row, 'Converted', 'converted');
+      const isConv = convVal === true || String(convVal || '').trim().toLowerCase() === 'true';
+      return [i + 1, leadName, realtorName, owner, fmtDate(cd), branch, isConv ? 'Yes' : 'No'];
     }),
     [],
     ['OPPORTUNITIES'],

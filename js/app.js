@@ -7,7 +7,7 @@ import { renderScorecard, refreshScorecard, clearScorecardFilters, renderRanking
 import { renderAssignCards, clearAssignFilters, confirmAssign, unconfirm, updateAssign, saveAllAssignments } from './assignments.js';
 import { renderLog } from './log.js';
 import { exportCSV, exportMasterCSV, exportLog, dl } from './export.js';
-import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, openModal, closeModal } from './modal.js';
+import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, showConvertedLeadsDetail, openModal, closeModal } from './modal.js';
 import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, downloadCwOwnerCsv } from './pipeline.js';
 
 function setStatus(t, msg) {
@@ -96,6 +96,7 @@ document.addEventListener('click', e => {
   const r = allR.find(x => x.key === key);
   if (!r) return;
   if (dtype === 'leads') showLeadDetail(key, r.name);
+  else if (dtype === 'converted') showConvertedLeadsDetail(key, r.name);
   else showOppDetail(key, r.name, dtype);
 });
 

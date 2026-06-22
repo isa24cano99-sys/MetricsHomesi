@@ -58,12 +58,14 @@ async function _runCalc() {
     const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
     const ownerStr = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '').trim();
     const branchStr = String(getField(row, 'Branch', 'branch') || '').trim();
-    if (!byRef.has(key)) byRef.set(key, { name, allDates: [], recentDates: [], owners: new Map(), branches: new Map() });
+    if (!byRef.has(key)) byRef.set(key, { name, allDates: [], recentDates: [], owners: new Map(), branches: new Map(), convertedCount: 0 });
     const rec = byRef.get(key);
     if (cd) {
       rec.allDates.push(cd);
       if (cd >= floorDate && cd <= cutoff) {
         rec.recentDates.push(cd);
+        const conv = getField(row, 'Converted', 'converted');
+        if (conv === true || String(conv).trim().toLowerCase() === 'true') rec.convertedCount++;
         if (ownerStr) rec.owners.set(ownerStr, (rec.owners.get(ownerStr) || 0) + 1);
         if (branchStr) rec.branches.set(branchStr, (rec.branches.get(branchStr) || 0) + 1);
         if (!leadRowsMap.has(key)) leadRowsMap.set(key, []);
@@ -143,10 +145,10 @@ async function _runCalc() {
       else if (c1 && c3)        med = 'Farming Lead';
       else                      med = 'Sin medición';
       const curCw = curCwMap.get(key) || 0, curRat = curRatMap.get(key) || 0, curPa = curPaMap.get(key) || 0;
-      state.activeResults.push({ key, name: rec.name, cnt, firstDate, penult, lastDate, c1, c2, c3, c4, cw, pa, rat, curCw, curRat, curPa, med, assignedOwner, assignedBranch, ownerSource, confirmed, leadRows: leadRowsMap.get(key) || [], oppRows: oppRowsMap.get(key) || [] });
+      state.activeResults.push({ key, name: rec.name, cnt, convertedCount: rec.convertedCount, firstDate, penult, lastDate, c1, c2, c3, c4, cw, pa, rat, curCw, curRat, curPa, med, assignedOwner, assignedBranch, ownerSource, confirmed, leadRows: leadRowsMap.get(key) || [], oppRows: oppRowsMap.get(key) || [] });
     } else {
       const curCw2 = curCwMap.get(key) || 0, curRat2 = curRatMap.get(key) || 0, curPa2 = curPaMap.get(key) || 0;
-      state.inactiveResults.push({ key, name: rec.name, cnt: rec.recentDates.length || rec.allDates.length, firstDate, penult, lastDate, cw, pa, rat, curCw: curCw2, curRat: curRat2, curPa: curPa2, med: 'Inactive', assignedOwner, assignedBranch, ownerSource, confirmed, daysSinceLast: lastDate ? Math.floor((cutoff - lastDate) / 86400000) : null, leadRows: leadRowsMap.get(key) || [], oppRows: oppRowsMap.get(key) || [] });
+      state.inactiveResults.push({ key, name: rec.name, cnt: rec.recentDates.length || rec.allDates.length, convertedCount: rec.convertedCount, firstDate, penult, lastDate, cw, pa, rat, curCw: curCw2, curRat: curRat2, curPa: curPa2, med: 'Inactive', assignedOwner, assignedBranch, ownerSource, confirmed, daysSinceLast: lastDate ? Math.floor((cutoff - lastDate) / 86400000) : null, leadRows: leadRowsMap.get(key) || [], oppRows: oppRowsMap.get(key) || [] });
     }
     const existing = state.masterMap.get(key);
     if (!existing || existing.source === 'auto') {

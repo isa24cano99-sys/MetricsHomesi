@@ -249,6 +249,14 @@ thead tr:hover th{background:var(--hs-navy) !important;}
 .days-to-close-fast{color:#085041;font-weight:700;font-family:'Barlow',sans-serif}
 .days-to-close-medium{color:#856400;font-weight:700;font-family:'Barlow',sans-serif}
 .days-to-close-slow{color:#A32D2D;font-weight:700;font-family:'Barlow',sans-serif}
+.pipeline-owners-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.pipeline-stages-list{margin-top:8px;border-radius:8px;overflow:hidden;border:1px solid #F0F4FA}
+.pipeline-stage-row{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #F0F4FA;cursor:pointer;transition:background .15s,border-left .15s}
+.pipeline-stage-row:last-child{border-bottom:none}
+.pipeline-stage-row:hover{background:#FFF8F8;border-left:3px solid var(--hs-red)}
+.pipeline-stage-row-name{font-size:12px;font-weight:600;color:var(--hs-navy)}
+.pipeline-stage-row-sub{font-size:10px;color:#8899BB;margin-top:2px}
+.pipeline-stage-row-chip{display:inline-flex;align-items:center;justify-content:center;min-width:32px;padding:2px 8px;border-radius:999px;font-family:'Barlow',sans-serif;font-weight:700;font-size:12px;background:#E8EDF5;color:var(--hs-navy)}
 .pl-grand-total{display:flex;justify-content:space-between;align-items:center;background:var(--hs-navy);color:white;border-radius:10px;padding:13px 18px;margin-top:14px;font-family:'Barlow',sans-serif;font-weight:700;font-size:13px}
 .pl-grand-amt{font-size:18px;color:var(--hs-gold)}
 .pl-cw-summary{background:#F7F9FC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px;margin-bottom:14px}

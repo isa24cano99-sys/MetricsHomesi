@@ -93,6 +93,7 @@ export function renderTable() {
 
   if (state.currentMode === 'active') {
     const totCnt = rows.reduce((s, r) => s + r.cnt, 0);
+    const totConverted = rows.reduce((s, r) => s + (r.convertedCount || 0), 0);
     const totPa = rows.reduce((s, r) => s + r.pa, 0);
     const totRat = rows.reduce((s, r) => s + r.rat, 0);
     const totCw = rows.reduce((s, r) => s + r.cw, 0);
@@ -109,6 +110,7 @@ export function renderTable() {
       '<th class="sticky-col sticky-col-2" onclick="srt(String.fromCharCode(97,115,115,105,103,110,101,100,66,114,97,110,99,104))">Branch &#8597;</th>',
       '<th class="sticky-col sticky-col-3 sticky-shadow" style="min-width:170px">Rating</th>',
       '<th style="min-width:90px" onclick="srt(String.fromCharCode(99,110,116))" title="Total leads in the selected time window">Period Leads &#8597;</th>',
+      '<th style="min-width:110px" onclick="srt(String.fromCharCode(99,111,110,118,101,114,116,101,100,67,111,117,110,116))" title="Leads marked as Converted within the selected window">Converted Leads &#8597;</th>',
       '<th style="min-width:80px" onclick="srt(String.fromCharCode(102,105,114,115,116,68,97,116,101))">1st Lead &#8597;</th>',
       '<th style="min-width:90px" onclick="srt(String.fromCharCode(112,101,110,117,108,116))" title="Date of the second most recent lead shared by this realtor — helps identify reactivation patterns">Prior Lead Date &#8597;</th>',
       '<th style="min-width:60px;text-align:center" title="C1: Has at least 1 lead in the active window">Active C1</th>',
@@ -128,6 +130,7 @@ export function renderTable() {
       '<th style="' + tE + '"></th>',
       '<th style="' + tE + '"></th>',
       '<th style="' + tS + '">' + totCnt + '</th>',
+      '<th style="' + tS + '">' + totConverted + '</th>',
       '<th style="' + tE + '"></th>',
       '<th style="' + tE + '"></th>',
       '<th style="' + tE + '"></th>',
@@ -155,6 +158,7 @@ export function renderTable() {
         '<td class="sticky-col sticky-col-2"><span class="ot">' + (r.assignedBranch || '&#8211;') + '</span></td>',
         '<td class="sticky-col sticky-col-3 sticky-shadow"><span class="badge ' + (BADGE[r.med] || 'b-sin') + '">' + r.med + '</span></td>',
         '<td style="text-align:center"><span class="clickable-num" data-rkey="' + k + '" data-dtype="leads" title="View ' + r.cnt + ' period leads">' + r.cnt + '</span></td>',
+        '<td style="text-align:center;font-weight:700">' + (r.convertedCount ? '<span class="clickable-num" data-rkey="' + k + '" data-dtype="converted" title="View converted leads">' + r.convertedCount + '</span>' : '&#8211;') + '</td>',
         '<td class="dt">' + fmtDate(r.firstDate) + '</td>',
         '<td class="dt">' + fmtDate(r.penult) + '</td>',
         '<td style="text-align:center">' + (r.c1 ? yy : nn) + '</td>',
