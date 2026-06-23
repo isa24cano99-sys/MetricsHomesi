@@ -164,6 +164,12 @@ export function confirmAssign(key) {
   }
   m.confirmed = true; m.source = 'manual'; m.updatedAt = fmtNow();
   state.masterMap.set(key, m);
+  sbFetch('master_assignments', {
+    method: 'POST',
+    prefer: 'return=minimal,resolution=merge-duplicates',
+    headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+    body: JSON.stringify([{ realtor_key: key, realtor_name: m.name || '', owner: m.owner || '', branch: m.branch || '', source: 'manual', updated_at: m.updatedAt, confirmed: true }])
+  }).catch(() => {});
   for (const r of [...state.activeResults, ...state.inactiveResults]) {
     if (r.key === key) { r.assignedOwner = m.owner; r.assignedBranch = m.branch; r.confirmed = true; }
   }

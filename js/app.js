@@ -9,6 +9,8 @@ import { renderLog } from './log.js';
 import { exportCSV, exportMasterCSV, exportLog, dl } from './export.js';
 import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, showConvertedLeadsDetail, openModal, closeModal } from './modal.js';
 import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, downloadCwOwnerCsv } from './pipeline.js';
+import { initTrends, renderTrends } from './trends.js';
+import { initPerformance, renderPerformance, loadKpiSettings, saveKpiSettings } from './performance.js';
 
 function setStatus(t, msg) {
   const bar = document.getElementById('status-bar');
@@ -31,6 +33,8 @@ bus.on('calc:complete', ({ windowDays, cutoff, floorDate, inactFloor, allowedOwn
   renderAssignCards();
   renderLog();
   initPipeline();
+  initTrends();
+  initPerformance();
   document.getElementById('results').classList.remove('hidden');
 });
 
@@ -141,6 +145,7 @@ async function initApp() {
     }
     const logs = await sbFetch('change_log?select=*&order=created_at.desc&limit=200');
     state.changeLog = (logs || []).map(l => ({ date: l.change_date, realtor: l.realtor, from: l.from_assignment, to: l.to_assignment }));
+    await loadKpiSettings();
 
     if (hasData) {
       setStatus('ok', '✅ Supabase connected — saved data available. Press Calculate to view results.');
@@ -161,7 +166,8 @@ Object.assign(window, {
   exportCSV, exportMasterCSV, exportLog, dl,
   closeModal, showAllLeadsForRealtor,
   handleFile,
-  renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail
+  renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, renderTrends,
+  renderPerformance, saveKpiSettings
 });
 
 // Set default date values and start app

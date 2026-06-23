@@ -81,10 +81,11 @@
       <div class="tabs">
         <button class="tab active" onclick="showTab('med')"><i class="ti ti-chart-bar"></i> Ratings</button>
         <button class="tab" onclick="showTab('sc')"><i class="ti ti-trophy"></i> Scorecard</button>
+        <button class="tab" onclick="showTab('trends')"><i class="ti ti-chart-line"></i> Trends</button>
+        <button class="tab" onclick="showTab('perf')"><i class="ti ti-chart-arrows-vertical"></i> Performance</button>
+        <button class="tab" onclick="showTab('pipeline')"><i class="ti ti-git-branch"></i> Pipeline</button>
         <button class="tab" onclick="showTab('assign')"><i class="ti ti-checkbox"></i> Realtors <span class="tab-badge"
             id="pending-badge">0</span></button>
-        <button class="tab" onclick="showTab('log')"><i class="ti ti-history"></i> History</button>
-        <button class="tab" onclick="showTab('pipeline')"><i class="ti ti-git-branch"></i> Pipeline</button>
       </div>
 
       <!-- MEDICIONES -->
@@ -159,6 +160,34 @@
         <div class="assign-cards" id="assign-cards"></div>
       </div>
 
+      <!-- PERFORMANCE -->
+      <div id="tab-perf" class="hidden">
+        <div class="perf-filters-wrap">
+          <div class="perf-filter-group">
+            <label class="lbl">Business Developer</label>
+            <select id="perf-owner" onchange="renderPerformance()">
+              <option value="">&#8212; Select BD &#8212;</option>
+            </select>
+          </div>
+          <div class="perf-filter-group">
+            <label class="lbl">Period</label>
+            <div class="perf-period-row">
+              <select id="perf-year" onchange="renderPerformance()" class="perf-year-sel"></select>
+              <select id="perf-months" multiple size="5" onchange="renderPerformance()"></select>
+            </div>
+          </div>
+          <div class="perf-filter-group">
+            <label class="lbl">Compare to</label>
+            <div class="perf-period-row">
+              <select id="perf-cmp-year" onchange="renderPerformance()" class="perf-year-sel"></select>
+              <select id="perf-cmp-months" multiple size="5" onchange="renderPerformance()"></select>
+            </div>
+          </div>
+        </div>
+        <div class="filter-hint">Ctrl+click to select multiple months &middot; comparison cuts at same week-of-month as today for fair comparison</div>
+        <div id="perf-content" style="margin-top:18px"></div>
+      </div>
+
       <!-- PIPELINE -->
       <div id="tab-pipeline" class="hidden">
         <div class="pl-section-header">
@@ -202,16 +231,44 @@
         <div id="pl-cw-content" style="margin-top:14px"></div>
       </div>
 
-      <!-- HISTORIAL -->
-      <div id="tab-log" class="hidden">
-        <div class="section-actions">
-          <span
-            style="font-size:10px;font-family:'Barlow',sans-serif;font-weight:700;color:#8899BB;text-transform:uppercase;letter-spacing:.4px">Change History</span>
-          <button class="btn-sm" style="margin-left:auto" onclick="exportLog()"><i class="ti ti-download"></i>
-            CSV</button>
+      <!-- TRENDS -->
+      <div id="tab-trends" class="hidden">
+        <div class="trends-header">
+          <div class="trends-title">Realtor Retention &amp; Business Developer Evolution</div>
+          <div class="trends-subtitle">Hunting = new realtors acquired in the period &nbsp;&middot;&nbsp; Farming = existing relationships that remained active</div>
         </div>
-        <div id="log-list"></div>
+
+        <div class="trends-windows">
+          <div class="trends-window-row">
+            <span class="trends-window-label">Current Window</span>
+            <span class="trends-window-range" id="trends-cur-label">Run calculation to load</span>
+            <span class="trends-window-note">(derived from Metrics parameters &mdash; read only)</span>
+          </div>
+          <div class="trends-window-row">
+            <span class="trends-window-label">Comparison 1</span>
+            <div class="trends-date-pair">
+              <label class="trends-date-lbl">From</label>
+              <input type="date" id="trends-c1-floor" onchange="renderTrends()">
+              <label class="trends-date-lbl">to</label>
+              <input type="date" id="trends-c1-cutoff" onchange="renderTrends()">
+            </div>
+            <span class="trends-window-range" id="trends-c1-label">—</span>
+          </div>
+          <div class="trends-window-row">
+            <span class="trends-window-label">Comparison 2</span>
+            <div class="trends-date-pair">
+              <label class="trends-date-lbl">From</label>
+              <input type="date" id="trends-c2-floor" onchange="renderTrends()">
+              <label class="trends-date-lbl">to</label>
+              <input type="date" id="trends-c2-cutoff" onchange="renderTrends()">
+            </div>
+            <span class="trends-window-range" id="trends-c2-label">—</span>
+          </div>
+        </div>
+
+        <div id="trends-table-wrap"></div>
       </div>
+
     </div>
 
   </div>
@@ -245,6 +302,22 @@
           <div class="progress-fill" id="pf-opp" style="width:0%"></div>
         </div>
       </div>
+      <div class="settings-section-title" style="margin-top:20px">Change History</div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:6px">
+        <button class="btn-sm" onclick="exportLog()"><i class="ti ti-download"></i> CSV</button>
+      </div>
+      <div id="log-list" style="max-height:280px;overflow-y:auto;font-size:11px"></div>
+
+      <div class="settings-section-title" style="margin-top:20px">KPI Goals</div>
+      <div class="cfg-group">
+        <label class="lbl">Monthly Loan Amount Goal ($)</label>
+        <input type="number" id="kpi-loan-goal" value="700000" min="0" step="10000" onchange="saveKpiSettings()">
+      </div>
+      <div class="cfg-group" style="margin-top:8px">
+        <label class="lbl">Monthly Pipeline Opportunities Goal</label>
+        <input type="number" id="kpi-opps-goal" value="10" min="0" step="1" onchange="saveKpiSettings()">
+      </div>
+
       <div class="settings-section-title" style="margin-top:20px">Group Owners</div>
       <div class="cfg-group">
         <label class="lbl">Owners <span style="font-weight:400;text-transform:none;font-size:10px;color:#99AABB">—

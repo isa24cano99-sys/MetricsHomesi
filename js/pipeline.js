@@ -199,6 +199,7 @@ export function renderPipeline() {
 
 export function showPipelineStageDetail(owner, stage) {
   const inactiveCutoff = getInactiveCutoff();
+  const today = new Date();
 
   const rows = (state.oppData || []).filter(row => {
     const rowOwner = String(getField(row, 'Opportunity Owner', 'opportunity owner') || '').trim();
@@ -235,7 +236,8 @@ export function showPipelineStageDetail(owner, stage) {
     const amt = getField(row, 'Loan Amount', 'loan amount');
     const amtFmt = amt ? '$' + Number(amt).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 
-    return { row, realtorName, status: cached.status, daysSince: cached.daysSince, lnNum, oppName, branch, loanOfficer, currentMilestone, loanStatus, oppCd, preApprovalDate, ratifiedDate, estClosingDate, amt, amtFmt };
+    const daysOpen = oppCd ? Math.floor((today - oppCd) / 86400000) : null;
+    return { row, realtorName, status: cached.status, daysSince: cached.daysSince, lnNum, oppName, branch, loanOfficer, currentMilestone, loanStatus, oppCd, daysOpen, preApprovalDate, ratifiedDate, estClosingDate, amt, amtFmt };
   });
 
   const order = { inactive: 0, active: 1, unknown: 2 };
@@ -245,7 +247,7 @@ export function showPipelineStageDetail(owner, stage) {
     '<th>Realtor</th><th>Status</th><th>Days Since Last Lead</th>' +
     '<th>Loan #</th><th>Opportunity Name</th><th>Branch</th><th>Loan Officer</th>' +
     '<th>Current Milestone</th><th>Loan Status</th>' +
-    '<th>Created Date</th><th>Pre-Approval Date</th><th>Ratified Date</th><th>Est. Closing Date</th>' +
+    '<th>Created Date</th><th>Days Open</th><th>Pre-Approval Date</th><th>Ratified Date</th><th>Est. Closing Date</th>' +
     '<th>Loan Amount</th>' +
   '</tr>';
 
@@ -263,6 +265,7 @@ export function showPipelineStageDetail(owner, stage) {
       '<td style="font-size:11px">' + e.currentMilestone + '</td>' +
       '<td style="font-size:11px">' + e.loanStatus + '</td>' +
       '<td class="dt">' + fmtDate(e.oppCd) + '</td>' +
+      '<td style="text-align:center;font-weight:700;color:' + (e.daysOpen == null ? '#8899BB' : e.daysOpen > 180 ? '#A32D2D' : e.daysOpen > 90 ? '#856400' : '#085041') + '">' + (e.daysOpen != null ? e.daysOpen + 'd' : '—') + '</td>' +
       '<td class="dt">' + (e.preApprovalDate ? fmtDate(e.preApprovalDate) : '—') + '</td>' +
       '<td class="dt">' + (e.ratifiedDate ? fmtDate(e.ratifiedDate) : '—') + '</td>' +
       '<td class="dt">' + (e.estClosingDate ? fmtDate(e.estClosingDate) : '—') + '</td>' +
@@ -277,13 +280,14 @@ export function showPipelineStageDetail(owner, stage) {
   const totalFmt = totalAmt ? '$' + totalAmt.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 
   const csvData = [
-    ['Realtor', 'Status', 'Days Since Last Lead', 'Loan #', 'Opportunity Name', 'Branch', 'Loan Officer', 'Current Milestone', 'Loan Status', 'Created Date', 'Pre-Approval Date', 'Ratified Date', 'Est. Closing Date', 'Loan Amount'],
+    ['Realtor', 'Status', 'Days Since Last Lead', 'Loan #', 'Opportunity Name', 'Branch', 'Loan Officer', 'Current Milestone', 'Loan Status', 'Created Date', 'Days Open', 'Pre-Approval Date', 'Ratified Date', 'Est. Closing Date', 'Loan Amount'],
     ...enriched.map(e => [
       e.realtorName, e.status, e.daysSince ?? '', e.lnNum, e.oppName,
       e.branch === '—' ? '' : e.branch, e.loanOfficer === '—' ? '' : e.loanOfficer,
       e.currentMilestone === '—' ? '' : e.currentMilestone,
       e.loanStatus === '—' ? '' : e.loanStatus,
       fmtDate(e.oppCd),
+      e.daysOpen ?? '',
       e.preApprovalDate ? fmtDate(e.preApprovalDate) : '',
       e.ratifiedDate ? fmtDate(e.ratifiedDate) : '',
       e.estClosingDate ? fmtDate(e.estClosingDate) : '',
@@ -508,11 +512,14 @@ export function showClosedWonDetail(owner) {
     const oppName = String(getField(row, 'Opportunity Name', 'opportunity name') || '—').trim();
     const branch = String(getField(row, 'Branch', 'branch') || '').trim() || '—';
     const disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
+    const ratifiedDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
     const createdDate = parseDate(getField(row, 'Created Date', 'created date', 'create date'));
     const amt = getField(row, 'Loan Amount', 'loan amount');
     const amtFmt = amt ? '$' + Number(amt).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-    const daysToClose = disbDate && createdDate ? Math.floor((disbDate - createdDate) / 86400000) : null;
-    return { row, realtorName, status: cached.status, lnNum, oppName, branch, disbDate, createdDate, daysToClose, amt, amtFmt };
+    const daysToClose = disbDate && ratifiedDate
+      ? Math.floor((disbDate - ratifiedDate) / 86400000)
+      : (disbDate && createdDate ? Math.floor((disbDate - createdDate) / 86400000) : null);
+    return { row, realtorName, status: cached.status, lnNum, oppName, branch, disbDate, ratifiedDate, createdDate, daysToClose, amt, amtFmt };
   });
 
   const totalAmt = enriched.reduce((s, e) => {
@@ -523,7 +530,7 @@ export function showClosedWonDetail(owner) {
 
   const head = '<tr>' +
     '<th>Loan #</th><th>Opportunity Name</th><th>Realtor</th><th>Realtor Status</th>' +
-    '<th>Branch</th><th>Disbursement Date</th><th>Opp. Created</th><th>Days to Close</th><th>Loan Amount</th>' +
+    '<th>Branch</th><th>Disbursement Date</th><th>Ratified Date</th><th>Opp. Created</th><th>Days to Close</th><th>Loan Amount</th>' +
   '</tr>';
 
   const body = enriched.map(e => {
@@ -536,6 +543,7 @@ export function showClosedWonDetail(owner) {
       '<td>' + statusChipHtml(e.status) + '</td>' +
       '<td style="font-size:11px">' + e.branch + '</td>' +
       '<td class="dt">' + fmtDate(e.disbDate) + '</td>' +
+      '<td class="dt">' + (e.ratifiedDate ? fmtDate(e.ratifiedDate) : '—') + '</td>' +
       '<td class="dt">' + fmtDate(e.createdDate) + '</td>' +
       '<td style="text-align:center"><span class="' + dtcClass + '">' + dtcTxt + '</span></td>' +
       '<td class="modal-amount">' + e.amtFmt + '</td>' +
@@ -543,10 +551,10 @@ export function showClosedWonDetail(owner) {
   }).join('');
 
   const csvData = [
-    ['Loan #', 'Opportunity Name', 'Realtor', 'Realtor Status', 'Branch', 'Disbursement Date', 'Opp. Created', 'Days to Close', 'Loan Amount'],
+    ['Loan #', 'Opportunity Name', 'Realtor', 'Realtor Status', 'Branch', 'Disbursement Date', 'Ratified Date', 'Opp. Created', 'Days to Close', 'Loan Amount'],
     ...enriched.map(e => [
       e.lnNum, e.oppName, e.realtorName, e.status, e.branch === '—' ? '' : e.branch,
-      fmtDate(e.disbDate), fmtDate(e.createdDate), e.daysToClose ?? '', e.amt || ''
+      fmtDate(e.disbDate), e.ratifiedDate ? fmtDate(e.ratifiedDate) : '', fmtDate(e.createdDate), e.daysToClose ?? '', e.amt || ''
     ])
   ];
 

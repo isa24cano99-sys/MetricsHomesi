@@ -49,7 +49,7 @@ export function showScorecardDetail(owner, med) {
     '<th>Realtor</th>' +
     '<th>Branch</th>' +
     '<th>Period Leads</th>' +
-    '<th>Converted Leads</th>' +
+    '<th>Converted to Opp.</th>' +
     '<th>1st Lead</th>' +
     '<th>2nd to Last Lead</th>' +
     '<th>Leads w/ Pre-Appr</th>' +
@@ -79,7 +79,7 @@ export function showScorecardDetail(owner, med) {
   ).join('');
 
   const csvData = [
-    ['#', 'Realtor', 'Branch', 'Period Leads', 'Converted Leads', '1st Lead', '2nd to Last Lead',
+    ['#', 'Realtor', 'Branch', 'Period Leads', 'Converted to Opp.', '1st Lead', '2nd to Last Lead',
      'Leads w/ Pre-Appr', 'Leads w/ Ratified', 'Leads Closed Won',
      'Curr. Pre-Approval', 'Curr. Ratified', 'Curr. Closed Won'],
     ...rows.map((r, i) => [
@@ -288,7 +288,7 @@ export function showConvertedLeadsDetail(key, realtorName) {
   ];
 
   openModal(
-    realtorName + ' — Converted Leads',
+    realtorName + ' — Converted to Opp.',
     rows.length + ' converted lead' + (rows.length !== 1 ? 's' : '') + ' · window: ' + fmtDate(floorDate) + ' → ' + fmtDate(cutoff),
     head, body, csvData
   );
