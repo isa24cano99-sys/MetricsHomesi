@@ -16,18 +16,18 @@ export function loadSfReference(inputEl) {
       const wb = XLSX.read(ev.target.result, { type: 'binary', cellDates: false });
       const sn = wb.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null });
-      state.realtorOwnerMap = new Map();
-      const dbRows = [];
+      // Deduplicate by realtor_key — last occurrence wins
+      const dedupMap = new Map();
       for (const row of rows) {
         const name = getField(row, 'Opportunity Name', 'opportunity name', 'Opp Name', 'opp name', 'Realtor', 'realtor', 'Name', 'name');
         const owner = getField(row, 'Opportunity Owner', 'opportunity owner', 'Opp Owner', 'opp owner', 'Owner', 'owner', 'BD', 'bd');
         if (name && owner) {
           const key = norm(String(name));
-          const ownerStr = String(owner).trim();
-          state.realtorOwnerMap.set(key, ownerStr);
-          dbRows.push({ realtor_key: key, realtor_name: String(name).trim(), owner: ownerStr });
+          dedupMap.set(key, { realtor_key: key, realtor_name: String(name).trim(), owner: String(owner).trim() });
         }
       }
+      state.realtorOwnerMap = new Map([...dedupMap.entries()].map(([k, r]) => [k, r.owner]));
+      const dbRows = [...dedupMap.values()];
       // Refresh table immediately so SF Suggestion column appears right away
       renderUnassigned();
       if (statusEl) statusEl.textContent = '⏳ Saving ' + dbRows.length + ' records to Supabase…';
