@@ -7,10 +7,14 @@ export const kpiGoals = { loanAmount: 700000, pipelineOpps: 10 };
 
 export async function loadKpiSettings() {
   try {
-    const rows = await sbFetch('kpi_settings?select=key,value');
+    const rows = await sbFetch('kpi_settings?select=key,value,text_value');
     for (const r of (rows || [])) {
       if (r.key === 'loan_amount_goal') kpiGoals.loanAmount = Number(r.value) || 700000;
       if (r.key === 'pipeline_opps_goal') kpiGoals.pipelineOpps = Number(r.value) || 10;
+      if (r.key === 'owners_list' && r.text_value) {
+        const el = document.getElementById('owners-list');
+        if (el) el.value = r.text_value;
+      }
     }
   } catch (_) { /* table may not exist yet — use defaults */ }
   const lEl = document.getElementById('kpi-loan-goal');
@@ -25,7 +29,7 @@ export async function saveKpiSettings() {
   if (lEl) kpiGoals.loanAmount = Math.max(0, Number(lEl.value) || 700000);
   if (oEl) kpiGoals.pipelineOpps = Math.max(0, Number(oEl.value) || 10);
   try {
-    await sbFetch('kpi_settings', {
+    await sbFetch('kpi_settings?on_conflict=key', {
       method: 'POST',
       prefer: 'return=minimal,resolution=merge-duplicates',
       headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
@@ -36,6 +40,24 @@ export async function saveKpiSettings() {
     });
   } catch (_) { /* silent */ }
   renderPerformance();
+}
+
+export async function saveOwnersList() {
+  const el = document.getElementById('owners-list');
+  const val = el ? el.value : '';
+  const statusEl = document.getElementById('owners-save-status');
+  if (statusEl) statusEl.textContent = 'Saving…';
+  try {
+    await sbFetch('kpi_settings?on_conflict=key', {
+      method: 'POST',
+      prefer: 'return=minimal,resolution=merge-duplicates',
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: JSON.stringify([{ key: 'owners_list', text_value: val }])
+    });
+    if (statusEl) { statusEl.textContent = '✓ Saved'; setTimeout(() => { statusEl.textContent = ''; }, 3000); }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '⚠ Error: ' + e.message;
+  }
 }
 
 function getAllowedOwners() {

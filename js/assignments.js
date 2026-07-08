@@ -200,7 +200,7 @@ export function confirmAssign(key) {
   }
   m.confirmed = true; m.source = 'manual'; m.updatedAt = fmtNow();
   state.masterMap.set(key, m);
-  sbFetch('master_assignments', {
+  sbFetch('master_assignments?on_conflict=realtor_key', {
     method: 'POST',
     prefer: 'return=minimal,resolution=merge-duplicates',
     headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
@@ -348,7 +348,7 @@ export async function saveAllAssignments() {
       realtor_key: key, realtor_name: m.name || '', owner: m.owner || '', branch: m.branch || '',
       source: m.source || 'auto', updated_at: m.updatedAt || '', confirmed: m.confirmed || false
     }));
-    await sbFetch('master_assignments', {
+    await sbFetch('master_assignments?on_conflict=realtor_key', {
       method: 'POST',
       prefer: 'return=minimal,resolution=merge-duplicates',
       headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },

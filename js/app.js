@@ -10,7 +10,7 @@ import { exportCSV, exportMasterCSV, exportLog, dl } from './export.js';
 import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, showConvertedLeadsDetail, openModal, closeModal } from './modal.js';
 import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, downloadCwOwnerCsv } from './pipeline.js';
 import { initTrends, renderTrends } from './trends.js';
-import { initPerformance, renderPerformance, loadKpiSettings, saveKpiSettings } from './performance.js';
+import { initPerformance, renderPerformance, loadKpiSettings, saveKpiSettings, saveOwnersList } from './performance.js';
 
 function setStatus(t, msg) {
   const bar = document.getElementById('status-bar');
@@ -168,7 +168,7 @@ Object.assign(window, {
   closeModal, showAllLeadsForRealtor,
   handleFile,
   renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, renderTrends,
-  renderPerformance, saveKpiSettings
+  renderPerformance, saveKpiSettings, saveOwnersList
 });
 
 // Set default date values and start app
