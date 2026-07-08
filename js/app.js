@@ -130,6 +130,14 @@ async function initApp() {
     let hasData = false;
     for (const m of (meta || [])) {
       const type = m.file_type;
+      if (type === 'realtor_map') {
+        const statusEl = document.getElementById('sf-ref-status');
+        if (statusEl) statusEl.innerHTML =
+          '<span style="color:#1A9E5A;font-weight:700">Uploaded ✓</span>' +
+          ' &nbsp;' + m.file_name + ' &nbsp;·&nbsp; ' + m.row_count + ' rows &nbsp;·&nbsp; ' +
+          new Date(m.uploaded_at).toLocaleDateString('es-CO');
+        continue;
+      }
       document.getElementById('uz-' + type).classList.add('ok');
       document.getElementById('uz-' + type + '-lbl').textContent = '✓ ' + m.file_name + ' (' + m.row_count + ' rows)';
       const saved = document.getElementById('uz-' + type + '-saved');

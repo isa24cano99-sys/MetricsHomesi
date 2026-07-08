@@ -42,6 +42,11 @@ export function loadSfReference(inputEl) {
             body: JSON.stringify(dbRows.slice(i, i + batchSize))
           });
         }
+        // Save metadata to upload_meta (same pattern as leads/opp uploads)
+        try {
+          await sbFetch('upload_meta?file_type=eq.realtor_map', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
+          await sbFetch('upload_meta', { method: 'POST', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' }, body: JSON.stringify({ file_type: 'realtor_map', file_name: file.name, row_count: state.realtorOwnerMap.size }) });
+        } catch (_) { /* non-critical */ }
         // Persistent success — never cleared
         const today = fmtDate(new Date());
         if (statusEl) statusEl.innerHTML =
