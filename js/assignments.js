@@ -28,20 +28,30 @@ export function loadSfReference(inputEl) {
           dbRows.push({ realtor_key: key, realtor_name: String(name).trim(), owner: ownerStr });
         }
       }
-      if (statusEl) statusEl.textContent = '⏳ Saving ' + dbRows.length + ' records…';
-      const batchSize = 200;
-      for (let i = 0; i < dbRows.length; i += batchSize) {
-        await sbFetch('realtor_owner_map?on_conflict=realtor_key', {
-          method: 'POST',
-          prefer: 'return=minimal,resolution=merge-duplicates',
-          headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
-          body: JSON.stringify(dbRows.slice(i, i + batchSize))
-        });
-      }
-      if (statusEl) { statusEl.textContent = '✓ ' + state.realtorOwnerMap.size + ' records saved'; setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 4000); }
+      // Refresh table immediately so SF Suggestion column appears right away
       renderUnassigned();
+      if (statusEl) statusEl.textContent = '⏳ Saving ' + dbRows.length + ' records to Supabase…';
+      // Save to Supabase — handled separately so a network error doesn't hide the column
+      try {
+        const batchSize = 200;
+        for (let i = 0; i < dbRows.length; i += batchSize) {
+          await sbFetch('realtor_owner_map?on_conflict=realtor_key', {
+            method: 'POST',
+            prefer: 'return=minimal,resolution=merge-duplicates',
+            headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+            body: JSON.stringify(dbRows.slice(i, i + batchSize))
+          });
+        }
+        // Persistent success — never cleared
+        const today = fmtDate(new Date());
+        if (statusEl) statusEl.innerHTML =
+          '<span style="color:#1A9E5A;font-weight:700">Uploaded ✓</span>' +
+          ' &nbsp;' + file.name + ' &nbsp;·&nbsp; ' + state.realtorOwnerMap.size + ' rows &nbsp;·&nbsp; ' + today;
+      } catch (e) {
+        if (statusEl) statusEl.textContent = '⚠ Saved in memory but Supabase error: ' + e.message;
+      }
     } catch (e) {
-      if (statusEl) statusEl.textContent = '⚠ Error: ' + e.message;
+      if (statusEl) statusEl.textContent = '⚠ Error reading file: ' + e.message;
     }
   };
   reader.readAsBinaryString(file);
@@ -275,11 +285,11 @@ export function renderUnassigned() {
     }
 
     return '<tr>' +
-      '<td style="font-weight:600;min-width:140px">' + r.name + '</td>' +
+      '<td style="font-weight:600;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + r.name + '">' + r.name + '</td>' +
       '<td>' + statusChip + '</td>' +
       '<td class="dt" style="white-space:nowrap">' + (r.lastDate ? fmtDate(r.lastDate) : '—') + '</td>' +
       '<td style="text-align:center;font-weight:700;color:var(--hs-navy)">' + r.allTimeCount + '</td>' +
-      '<td style="font-size:11px;color:#667799;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + topOwners + '">' + topOwners + '</td>' +
+      '<td style="font-size:11px;color:#667799;min-width:220px;white-space:normal">' + topOwners + '</td>' +
       sfCell +
       '<td><select id="uao_' + safeId + '" class="uassign-sel">' + ownerOpts + '</select></td>' +
       '<td><input type="text" id="uab_' + safeId + '" class="uassign-inp" placeholder="Branch"/></td>' +
