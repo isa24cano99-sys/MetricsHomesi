@@ -172,6 +172,15 @@
         </div>
 
         <div id="assign-view-unassigned" class="hidden">
+          <div class="sf-ref-upload">
+            <div class="sf-ref-label"><i class="ti ti-file-spreadsheet"></i> Salesforce Owner Reference</div>
+            <div class="sf-ref-hint">Upload Excel with Opportunity Name (realtor) and Opportunity Owner (BD) columns to get assignment suggestions</div>
+            <label class="sf-ref-btn">
+              <i class="ti ti-upload"></i> Upload reference file
+              <input type="file" accept=".xlsx,.xls" onchange="loadSfReference(this)" style="display:none">
+            </label>
+            <span id="sf-ref-status" class="sf-ref-status"></span>
+          </div>
           <div id="unassigned-content"></div>
         </div>
       </div>

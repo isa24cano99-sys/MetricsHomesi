@@ -378,3 +378,14 @@ thead tr:hover th{background:var(--hs-navy) !important;}
 .uassign-sel{font-size:11px;padding:5px 8px;border:1.5px solid #D0DAF0;border-radius:7px;background:white;color:var(--hs-navy);min-width:140px}
 .uassign-inp{font-size:11px;padding:5px 8px;border:1.5px solid #D0DAF0;border-radius:7px;background:white;color:var(--hs-navy);width:110px}
 .uassign-sel:focus,.uassign-inp:focus{outline:none;border-color:var(--hs-red)}
+
+/* SF Reference upload zone */
+.sf-ref-upload{display:flex;align-items:center;gap:12px;background:#F8F9FC;border:1.5px dashed #D0DAF0;border-radius:10px;padding:12px 16px;margin-bottom:14px;flex-wrap:wrap}
+.sf-ref-label{font-family:'Barlow',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--hs-navy);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.sf-ref-hint{font-size:11px;color:#8899BB;flex:1;min-width:160px}
+.sf-ref-btn{display:inline-flex;align-items:center;gap:5px;font-family:'Barlow',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:5px 14px;background:white;border:1.5px solid #D0DAF0;border-radius:20px;color:var(--hs-navy);cursor:pointer;white-space:nowrap;transition:border-color .15s}
+.sf-ref-btn:hover{border-color:var(--hs-navy)}
+.sf-ref-status{font-size:11px;color:#667799;white-space:nowrap}
+/* SF suggestion chip */
+.sf-suggest-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:rgba(200,155,20,.12);color:#8B6914;border:1px solid rgba(200,155,20,.3);border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;transition:background .15s;white-space:nowrap}
+.sf-suggest-chip:hover{background:rgba(200,155,20,.22)}

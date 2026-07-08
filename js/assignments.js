@@ -5,6 +5,40 @@ import { sbFetch } from './supabase.js';
 import { renderSummary } from './ui.js';
 import { renderLog } from './log.js';
 
+// Module-level SF reference map — loaded from Excel upload, never persisted
+let _sfRefMap = null;
+
+export function loadSfReference(inputEl) {
+  const file = inputEl.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('sf-ref-status');
+  if (statusEl) statusEl.textContent = 'Reading…';
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: 'binary', cellDates: false });
+      const sn = wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null });
+      _sfRefMap = new Map();
+      for (const row of rows) {
+        const name = getField(row, 'Opportunity Name', 'opportunity name', 'Opp Name', 'opp name', 'Realtor', 'realtor', 'Name', 'name');
+        const owner = getField(row, 'Opportunity Owner', 'opportunity owner', 'Opp Owner', 'opp owner', 'Owner', 'owner', 'BD', 'bd');
+        if (name && owner) _sfRefMap.set(norm(String(name)), String(owner).trim());
+      }
+      if (statusEl) statusEl.textContent = '✓ ' + _sfRefMap.size + ' records loaded';
+      renderUnassigned();
+    } catch (e) {
+      if (statusEl) statusEl.textContent = '⚠ Error: ' + e.message;
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+export function applyUaSuggestion(safeId, owner) {
+  const el = document.getElementById('uao_' + safeId);
+  if (el) el.value = owner;
+}
+
 export function clearAssignFilters() {
   ['assign-filter-owner', 'assign-filter-branch', 'assign-filter-med'].forEach(id => {
     const el = document.getElementById(id);
@@ -195,6 +229,7 @@ export function renderUnassigned() {
   const owners = document.getElementById('owners-list').value
     .split(',').map(s => s.trim().replace(/^["']+|["']+$/g, '').trim()).filter(s => s !== '');
 
+  const sfColVisible = _sfRefMap !== null;
   const items = allResults.filter(r => getAssignStatus(r.key) === 'unassigned');
 
   const badge = document.getElementById('unassigned-count-badge');
@@ -232,12 +267,27 @@ export function renderUnassigned() {
     const topOwners = [...d.ownerCounts.entries()]
       .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([o]) => o).join(', ') || '—';
     const safeId = r.key.replace(/[^a-z0-9]/g, '_');
+
+    let sfCell = '';
+    if (sfColVisible) {
+      const suggestion = _sfRefMap.get(norm(r.name));
+      if (!suggestion) {
+        sfCell = '<td style="color:#AAB4CC;font-size:11px;text-align:center">—</td>';
+      } else if (owners.includes(suggestion)) {
+        const safeOwner = suggestion.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        sfCell = '<td><span class="sf-suggest-chip" title="Salesforce suggests this BD as owner. Click to apply or ignore." onclick="applyUaSuggestion(\'' + safeId + '\',\'' + safeOwner + '\')">✦ ' + suggestion + '</span></td>';
+      } else {
+        sfCell = '<td style="color:#AAB4CC;font-size:11px">' + suggestion + ' <span style="font-size:10px">(not in group)</span></td>';
+      }
+    }
+
     return '<tr>' +
       '<td style="font-weight:600;min-width:140px">' + r.name + '</td>' +
       '<td>' + statusChip + '</td>' +
       '<td class="dt" style="white-space:nowrap">' + (d.lastDate ? fmtDate(d.lastDate) : '—') + '</td>' +
       '<td style="text-align:center;font-weight:700;color:var(--hs-navy)">' + d.allTime + '</td>' +
       '<td style="font-size:11px;color:#667799;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + topOwners + '">' + topOwners + '</td>' +
+      sfCell +
       '<td><select id="uao_' + safeId + '" class="uassign-sel">' + ownerOpts + '</select></td>' +
       '<td><input type="text" id="uab_' + safeId + '" class="uassign-inp" placeholder="Branch"/></td>' +
       '<td><button class="btn-sm btn-primary" onclick="saveUnassigned(\'' + r.key + '\')" style="font-size:10px;padding:4px 10px"><i class="ti ti-check"></i> Save</button></td>' +
@@ -249,7 +299,9 @@ export function renderUnassigned() {
       '<table class="unassigned-table">' +
         '<thead><tr>' +
           '<th>Realtor</th><th>Status</th><th>Last Lead</th><th>All-time Leads</th>' +
-          '<th>Lead Owners Seen</th><th>Assign Owner</th><th>Assign Branch</th><th></th>' +
+          '<th>Lead Owners Seen</th>' +
+          (sfColVisible ? '<th>SF Suggestion</th>' : '') +
+          '<th>Assign Owner</th><th>Assign Branch</th><th></th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
       '</table>' +
