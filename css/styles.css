@@ -389,3 +389,12 @@ thead tr:hover th{background:var(--hs-navy) !important;}
 /* SF suggestion chip */
 .sf-suggest-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:rgba(200,155,20,.12);color:#8B6914;border:1px solid rgba(200,155,20,.3);border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;transition:background .15s;white-space:nowrap}
 .sf-suggest-chip:hover{background:rgba(200,155,20,.22)}
+/* Unassigned toolbar */
+.ua-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.ua-search-wrap{position:relative;flex:1;min-width:180px;max-width:300px}
+.ua-search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:#99AABB;pointer-events:none}
+.ua-search{width:100%;padding:6px 10px 6px 28px;font-size:12px;border:1.5px solid #D0DAF0;border-radius:8px;background:white;color:var(--hs-navy);outline:none;box-sizing:border-box}
+.ua-search:focus{border-color:var(--hs-red)}
+.ua-sf-filter{font-size:11px;padding:6px 10px;border:1.5px solid #D0DAF0;border-radius:8px;background:white;color:var(--hs-navy);outline:none;cursor:pointer}
+.ua-sf-filter:focus{border-color:var(--hs-red)}
+.ua-count{font-size:11px;color:#8899BB;margin-left:auto;white-space:nowrap}

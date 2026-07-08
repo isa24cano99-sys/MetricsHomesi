@@ -252,19 +252,54 @@ export function renderUnassigned() {
   const container = document.getElementById('unassigned-content');
   if (!container) return;
 
+  // Preserve filter state across re-renders
+  const prevSearch = (document.getElementById('ua-search') || {}).value || '';
+  const prevSfFilter = (document.getElementById('ua-sf-filter') || {}).value || 'all';
+
   const owners = document.getElementById('owners-list').value
     .split(',').map(s => s.trim().replace(/^["']+|["']+$/g, '').trim()).filter(s => s !== '');
 
   const sfColVisible = state.realtorOwnerMap.size > 0;
-  const items = state.unassignedResults;
+  const allItems = state.unassignedResults;
 
   const badge = document.getElementById('unassigned-count-badge');
-  if (badge) badge.textContent = items.length;
+  if (badge) badge.textContent = allItems.length;
 
-  if (!items.length) {
+  if (!allItems.length) {
     container.innerHTML = '<div class="empty-state" style="margin-top:16px">All realtors have an owner assigned.</div>';
     return;
   }
+
+  // Apply filters
+  const searchLc = prevSearch.toLowerCase();
+  const items = allItems.filter(r => {
+    if (searchLc && !r.name.toLowerCase().includes(searchLc)) return false;
+    if (sfColVisible && prevSfFilter !== 'all') {
+      const hasSuggestion = state.realtorOwnerMap.has(norm(r.name));
+      if (prevSfFilter === 'with' && !hasSuggestion) return false;
+      if (prevSfFilter === 'without' && hasSuggestion) return false;
+    }
+    return true;
+  });
+
+  const sfFilterOpts = sfColVisible
+    ? '<select id="ua-sf-filter" class="ua-sf-filter" onchange="renderUnassigned()" title="Filter by SF Suggestion">' +
+        '<option value="all"' + (prevSfFilter === 'all' ? ' selected' : '') + '>All realtors</option>' +
+        '<option value="with"' + (prevSfFilter === 'with' ? ' selected' : '') + '>With SF Suggestion</option>' +
+        '<option value="without"' + (prevSfFilter === 'without' ? ' selected' : '') + '>Without SF Suggestion</option>' +
+      '</select>'
+    : '';
+
+  const toolbar =
+    '<div class="ua-toolbar">' +
+      '<div class="ua-search-wrap">' +
+        '<i class="ti ti-search ua-search-icon"></i>' +
+        '<input type="text" id="ua-search" class="ua-search" placeholder="Search realtor…"' +
+          ' value="' + prevSearch.replace(/"/g, '&quot;') + '" oninput="renderUnassigned()">' +
+      '</div>' +
+      sfFilterOpts +
+      '<span class="ua-count">' + items.length + ' / ' + allItems.length + '</span>' +
+    '</div>';
 
   const ownerOpts = '<option value="">— Select Owner —</option>' +
     owners.map(o => '<option value="' + o + '">' + o + '</option>').join('');
@@ -302,7 +337,12 @@ export function renderUnassigned() {
     '</tr>';
   }).join('');
 
+  const emptyRow = items.length === 0
+    ? '<tr><td colspan="' + (sfColVisible ? 9 : 8) + '" style="text-align:center;padding:20px;color:#8899BB;font-size:12px">No realtors match the current filter.</td></tr>'
+    : '';
+
   container.innerHTML =
+    toolbar +
     '<div class="unassigned-wrap">' +
       '<table class="unassigned-table">' +
         '<thead><tr>' +
@@ -311,9 +351,15 @@ export function renderUnassigned() {
           (sfColVisible ? '<th>SF Suggestion</th>' : '') +
           '<th>Assign Owner</th><th>Assign Branch</th><th></th>' +
         '</tr></thead>' +
-        '<tbody>' + rows + '</tbody>' +
+        '<tbody>' + (rows || emptyRow) + '</tbody>' +
       '</table>' +
     '</div>';
+
+  // Restore focus on search if the user was typing
+  if (prevSearch) {
+    const searchEl = document.getElementById('ua-search');
+    if (searchEl) { searchEl.focus(); searchEl.setSelectionRange(searchEl.value.length, searchEl.value.length); }
+  }
 }
 
 export function saveUnassigned(key) {
