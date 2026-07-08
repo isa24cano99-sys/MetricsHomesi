@@ -184,7 +184,8 @@ export function renderAssignCards() {
         '<div class="acard-avatar">' + initials(r.name) + '</div>' +
         '<div style="flex:1;min-width:0">' +
           '<div class="acard-name"><span class="clickable-num" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="showAllLeadsForRealtor(\'' + encodeURIComponent(r.key) + '\',\'' + (r.name || r.key).replace(/'/g, "\\'") + '\')" title="Ver todos los leads de este realtor">' + (r.name || r.key) + '</span></div>' +
-          '<div class="acard-med"><span class="badge ' + (BADGE[r.med] || 'b-sin') + '" style="font-size:8px">' + r.med + '</span></div>' +
+          '<div class="acard-med"><span class="badge ' + (BADGE[r.med] || 'b-sin') + '" style="font-size:8px">' + r.med + '</span>' +
+            (m.source === 'manual' ? '&nbsp;<span class="manual-assign-chip">&#9733; Manual</span>' : '') + '</div>' +
           '<div style="font-size:9px;color:#8899BB;margin-top:3px">&#128203; ' + (leadCountMap.get(r.key) || 0) + ' leads &middot; ' + (oppCountMap.get(r.key) || 0) + ' opps.</div>' +
         '</div>' +
         '<div class="acard-status">' + statusChip + '</div>' +
@@ -366,13 +367,54 @@ export function saveUnassigned(key) {
   const safeKey = key.replace(/[^a-z0-9]/g, '_');
   const ownerEl = document.getElementById('uao_' + safeKey);
   const branchEl = document.getElementById('uab_' + safeKey);
-  if (ownerEl && ownerEl.value) updateAssign(key, 'owner', ownerEl.value);
-  if (branchEl) updateAssign(key, 'branch', branchEl.value);
-  // Remove from unassignedResults so the row disappears without a full recalc
+  const owner = (ownerEl && ownerEl.value) ? ownerEl.value : '';
+  const branch = branchEl ? (branchEl.value || '') : '';
+  if (!owner) return; // require an owner selection before saving
+
+  // Grab entry data before removing it
+  const uEntry = state.unassignedResults.find(r => r.key === key);
   state.unassignedResults = state.unassignedResults.filter(r => r.key !== key);
-  // confirmAssign reads ao_/ab_ from DOM; falls back to masterMap set above
-  confirmAssign(key);
+
+  // Build confirmed masterMap entry directly (updateAssign sets confirmed=false, so we set manually)
+  const now = fmtNow();
+  const name = (uEntry && uEntry.name) || key;
+  state.masterMap.set(key, { name, owner, branch, source: 'manual', updatedAt: now, confirmed: true });
+
+  // Move realtor to the correct results array so the card appears in Assigned view
+  if (uEntry) {
+    const base = {
+      key, name, cnt: 0, convertedCount: 0,
+      firstDate: uEntry.firstDate, penult: null, lastDate: uEntry.lastDate,
+      cw: 0, pa: 0, rat: 0, curCw: 0, curRat: 0, curPa: 0,
+      assignedOwner: owner, assignedBranch: branch, ownerSource: 'manual', confirmed: true,
+      leadRows: [], oppRows: []
+    };
+    if (uEntry.isActive) {
+      state.activeResults.push(Object.assign({}, base, { c1: true, c2: false, c3: true, c4: false, med: 'Sin medición' }));
+    } else {
+      state.inactiveResults.push(Object.assign({}, base, { med: 'Inactive', daysSinceLast: null }));
+    }
+  }
+
+  // Log: from=Unassigned, to=owner/branch
+  const logEntry = { date: now, realtor: name, from: 'Unassigned', to: owner + (branch ? ' / ' + branch : '') };
+  state.changeLog.unshift(logEntry);
+  sbFetch('change_log', {
+    method: 'POST', prefer: 'return=minimal',
+    body: JSON.stringify({ change_date: logEntry.date, realtor: logEntry.realtor, from_assignment: logEntry.from, to_assignment: logEntry.to })
+  }).catch(() => {});
+
+  // Upsert to master_assignments
+  sbFetch('master_assignments?on_conflict=realtor_key', {
+    method: 'POST',
+    prefer: 'return=minimal,resolution=merge-duplicates',
+    headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+    body: JSON.stringify([{ realtor_key: key, realtor_name: name, owner, branch, source: 'manual', updated_at: now, confirmed: true }])
+  }).catch(() => {});
+
   renderUnassigned();
+  renderAssignCards();
+  renderLog();
 }
 
 export function showAssignView(view) {
