@@ -135,29 +135,45 @@
 
       <!-- ASIGNACIONES -->
       <div id="tab-assign" class="hidden">
-        <div class="assign-stats" id="assign-stats"></div>
-        <div class="assign-toolbar">
-          <input class="assign-search" id="assign-search" placeholder="Search realtor..." oninput="renderAssignCards()">
-          <button class="btn-sm btn-primary" onclick="saveAllAssignments()"><i class="ti ti-device-floppy"></i> Save All</button>
-          <button class="btn-sm" onclick="exportMasterCSV()"><i class="ti ti-download"></i> CSV</button>
-          <span id="assign-save-status" class="save-status"></span>
+        <div class="assign-subnav">
+          <button class="assign-subnav-btn active" id="assign-tab-assigned" onclick="showAssignView('assigned')">
+            <i class="ti ti-checkbox"></i> Assigned
+          </button>
+          <button class="assign-subnav-btn" id="assign-tab-unassigned" onclick="showAssignView('unassigned')">
+            <i class="ti ti-alert-circle"></i> Unassigned
+            <span class="assign-unassigned-badge" id="unassigned-count-badge">0</span>
+          </button>
         </div>
-        <div class="filters">
-          <select id="assign-filter-owner" multiple size="3" onchange="renderAssignCards()"></select>
-          <select id="assign-filter-branch" multiple size="3" onchange="renderAssignCards()"></select>
-          <select id="assign-filter-med" multiple size="3" onchange="renderAssignCards()"></select>
-          <select id="assign-filter-status" onchange="renderAssignCards()">
-            <option value="">All</option>
-            <option value="active">Active Only</option>
-            <option value="inactive">Inactive Only</option>
-            <option value="confirmed">Confirmed Only</option>
-            <option value="pending">Pending Only</option>
-            <option value="unassigned">No Owner</option>
-          </select>
-          <button class="btn-sm" id="btn-clear-assign-filters" onclick="clearAssignFilters()"><i class="ti ti-rotate"></i> Clear Filters</button>
+
+        <div id="assign-view-assigned">
+          <div class="assign-stats" id="assign-stats"></div>
+          <div class="assign-toolbar">
+            <input class="assign-search" id="assign-search" placeholder="Search realtor..." oninput="renderAssignCards()">
+            <button class="btn-sm btn-primary" onclick="saveAllAssignments()"><i class="ti ti-device-floppy"></i> Save All</button>
+            <button class="btn-sm" onclick="exportMasterCSV()"><i class="ti ti-download"></i> CSV</button>
+            <span id="assign-save-status" class="save-status"></span>
+          </div>
+          <div class="filters">
+            <select id="assign-filter-owner" multiple size="3" onchange="renderAssignCards()"></select>
+            <select id="assign-filter-branch" multiple size="3" onchange="renderAssignCards()"></select>
+            <select id="assign-filter-med" multiple size="3" onchange="renderAssignCards()"></select>
+            <select id="assign-filter-status" onchange="renderAssignCards()">
+              <option value="">All</option>
+              <option value="active">Active Only</option>
+              <option value="inactive">Inactive Only</option>
+              <option value="confirmed">Confirmed Only</option>
+              <option value="pending">Pending Only</option>
+              <option value="unassigned">No Owner</option>
+            </select>
+            <button class="btn-sm" id="btn-clear-assign-filters" onclick="clearAssignFilters()"><i class="ti ti-rotate"></i> Clear Filters</button>
+          </div>
+          <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
+          <div class="assign-cards" id="assign-cards"></div>
         </div>
-        <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
-        <div class="assign-cards" id="assign-cards"></div>
+
+        <div id="assign-view-unassigned" class="hidden">
+          <div id="unassigned-content"></div>
+        </div>
       </div>
 
       <!-- PERFORMANCE -->

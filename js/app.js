@@ -4,7 +4,7 @@ import { sbFetch, uploadToSupabase } from './supabase.js';
 import { runCalc } from './calc.js';
 import { setMode, renderTable, populateFilters, renderSummary, srt, onModeSelect, showTab } from './ui.js';
 import { renderScorecard, refreshScorecard, clearScorecardFilters, renderRankings } from './scorecard.js';
-import { renderAssignCards, clearAssignFilters, confirmAssign, unconfirm, updateAssign, saveAllAssignments } from './assignments.js';
+import { renderAssignCards, clearAssignFilters, confirmAssign, unconfirm, updateAssign, saveAllAssignments, showAssignView, renderUnassigned, saveUnassigned } from './assignments.js';
 import { renderLog } from './log.js';
 import { exportCSV, exportMasterCSV, exportLog, dl } from './export.js';
 import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, showConvertedLeadsDetail, openModal, closeModal } from './modal.js';
@@ -163,6 +163,7 @@ Object.assign(window, {
   runCalc, openSettings, closeSettings, onModeSelect, renderTable, showTab, srt,
   clearScorecardFilters, refreshScorecard, renderRankings,
   renderAssignCards, saveAllAssignments, clearAssignFilters, confirmAssign, unconfirm, updateAssign,
+  showAssignView, renderUnassigned, saveUnassigned,
   exportCSV, exportMasterCSV, exportLog, dl,
   closeModal, showAllLeadsForRealtor,
   handleFile,

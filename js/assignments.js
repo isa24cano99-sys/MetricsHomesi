@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { norm, getField, fmtNow, initials } from './utils.js';
+import { norm, parseDate, fmtDate, getField, fmtNow, initials } from './utils.js';
 import { BADGE } from './config.js';
 import { sbFetch } from './supabase.js';
 import { renderSummary } from './ui.js';
@@ -70,6 +70,8 @@ export function renderAssignCards() {
   const pending = allResults.filter(r => getAssignStatus(r.key) === 'pending').length;
   const unassigned = allResults.filter(r => getAssignStatus(r.key) === 'unassigned').length;
   document.getElementById('pending-badge').textContent = pending + unassigned;
+  const unasgnBadge = document.getElementById('unassigned-count-badge');
+  if (unasgnBadge) unasgnBadge.textContent = unassigned;
   document.getElementById('assign-stats').innerHTML = [
     ['ti-users', 'Total', total, ''],
     ['ti-circle-check', 'Confirmed', confirmed, 'chip-confirmed'],
@@ -182,6 +184,108 @@ export function unconfirm(key) {
   if (m) { m.confirmed = false; state.masterMap.set(key, m); }
   for (const r of [...state.activeResults, ...state.inactiveResults]) { if (r.key === key) r.confirmed = false; }
   renderAssignCards();
+}
+
+export function renderUnassigned() {
+  const container = document.getElementById('unassigned-content');
+  if (!container) return;
+
+  const allResults = [...state.activeResults, ...state.inactiveResults];
+  const activeKeys = new Set(state.activeResults.map(r => r.key));
+  const owners = document.getElementById('owners-list').value
+    .split(',').map(s => s.trim().replace(/^["']+|["']+$/g, '').trim()).filter(s => s !== '');
+
+  const items = allResults.filter(r => getAssignStatus(r.key) === 'unassigned');
+
+  const badge = document.getElementById('unassigned-count-badge');
+  if (badge) badge.textContent = items.length;
+
+  if (!items.length) {
+    container.innerHTML = '<div class="empty-state" style="margin-top:16px">All realtors have an owner assigned.</div>';
+    return;
+  }
+
+  // Build per-realtor stats from all-time leadsData
+  const rdMap = new Map();
+  for (const row of (state.leadsData || [])) {
+    const ref = getField(row, 'Referred By', 'referred by');
+    if (!ref || !String(ref).trim()) continue;
+    const key = norm(String(ref).trim());
+    const cd = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+    const ownerStr = String(getField(row, 'Lead Owner', 'lead owner', 'Owner', 'owner') || '').trim();
+    if (!rdMap.has(key)) rdMap.set(key, { lastDate: null, allTime: 0, ownerCounts: new Map() });
+    const d = rdMap.get(key);
+    d.allTime++;
+    if (cd && (!d.lastDate || cd > d.lastDate)) d.lastDate = cd;
+    if (ownerStr) d.ownerCounts.set(ownerStr, (d.ownerCounts.get(ownerStr) || 0) + 1);
+  }
+
+  const ownerOpts = '<option value="">— Select Owner —</option>' +
+    owners.map(o => '<option value="' + o + '">' + o + '</option>').join('');
+
+  const rows = items.map(r => {
+    const d = rdMap.get(r.key) || { lastDate: null, allTime: 0, ownerCounts: new Map() };
+    const isActive = activeKeys.has(r.key);
+    const statusChip = isActive
+      ? '<span class="status-chip chip-confirmed" style="font-size:9px;padding:2px 7px">Active</span>'
+      : '<span class="status-chip chip-unassigned" style="font-size:9px;padding:2px 7px">Inactive</span>';
+    const topOwners = [...d.ownerCounts.entries()]
+      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([o]) => o).join(', ') || '—';
+    const safeId = r.key.replace(/[^a-z0-9]/g, '_');
+    return '<tr>' +
+      '<td style="font-weight:600;min-width:140px">' + r.name + '</td>' +
+      '<td>' + statusChip + '</td>' +
+      '<td class="dt" style="white-space:nowrap">' + (d.lastDate ? fmtDate(d.lastDate) : '—') + '</td>' +
+      '<td style="text-align:center;font-weight:700;color:var(--hs-navy)">' + d.allTime + '</td>' +
+      '<td style="font-size:11px;color:#667799;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + topOwners + '">' + topOwners + '</td>' +
+      '<td><select id="uao_' + safeId + '" class="uassign-sel">' + ownerOpts + '</select></td>' +
+      '<td><input type="text" id="uab_' + safeId + '" class="uassign-inp" placeholder="Branch"/></td>' +
+      '<td><button class="btn-sm btn-primary" onclick="saveUnassigned(\'' + r.key + '\')" style="font-size:10px;padding:4px 10px"><i class="ti ti-check"></i> Save</button></td>' +
+    '</tr>';
+  }).join('');
+
+  container.innerHTML =
+    '<div class="unassigned-wrap">' +
+      '<table class="unassigned-table">' +
+        '<thead><tr>' +
+          '<th>Realtor</th><th>Status</th><th>Last Lead</th><th>All-time Leads</th>' +
+          '<th>Lead Owners Seen</th><th>Assign Owner</th><th>Assign Branch</th><th></th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+    '</div>';
+}
+
+export function saveUnassigned(key) {
+  const safeKey = key.replace(/[^a-z0-9]/g, '_');
+  const ownerEl = document.getElementById('uao_' + safeKey);
+  const branchEl = document.getElementById('uab_' + safeKey);
+  if (ownerEl && ownerEl.value) updateAssign(key, 'owner', ownerEl.value);
+  if (branchEl) updateAssign(key, 'branch', branchEl.value);
+  // confirmAssign reads ao_/ab_ from DOM; since those don't exist here it falls
+  // back to the masterMap values we just set via updateAssign above
+  confirmAssign(key);
+  renderUnassigned();
+}
+
+export function showAssignView(view) {
+  const avAssigned   = document.getElementById('assign-view-assigned');
+  const avUnassigned = document.getElementById('assign-view-unassigned');
+  const btnA = document.getElementById('assign-tab-assigned');
+  const btnU = document.getElementById('assign-tab-unassigned');
+  if (!avAssigned) return;
+  if (view === 'unassigned') {
+    avAssigned.classList.add('hidden');
+    avUnassigned.classList.remove('hidden');
+    if (btnA) btnA.classList.remove('active');
+    if (btnU) btnU.classList.add('active');
+    renderUnassigned();
+  } else {
+    avAssigned.classList.remove('hidden');
+    avUnassigned.classList.add('hidden');
+    if (btnA) btnA.classList.add('active');
+    if (btnU) btnU.classList.remove('active');
+  }
 }
 
 export async function saveAllAssignments() {
