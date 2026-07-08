@@ -172,15 +172,6 @@
         </div>
 
         <div id="assign-view-unassigned" class="hidden">
-          <div class="sf-ref-upload">
-            <div class="sf-ref-label"><i class="ti ti-file-spreadsheet"></i> Salesforce Owner Reference</div>
-            <div class="sf-ref-hint">Upload Excel with Opportunity Name (realtor) and Opportunity Owner (BD) columns to get assignment suggestions</div>
-            <label class="sf-ref-btn">
-              <i class="ti ti-upload"></i> Upload reference file
-              <input type="file" accept=".xlsx,.xls" onchange="loadSfReference(this)" style="display:none">
-            </label>
-            <span id="sf-ref-status" class="sf-ref-status"></span>
-          </div>
           <div id="unassigned-content"></div>
         </div>
       </div>
@@ -355,6 +346,18 @@
         <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
           <button class="btn-sm btn-primary" onclick="saveOwnersList()" style="font-size:11px;padding:5px 16px"><i class="ti ti-device-floppy"></i> Save</button>
           <span id="owners-save-status" style="font-size:11px;color:#667799"></span>
+        </div>
+      </div>
+
+      <div class="settings-section-title" style="margin-top:20px">Salesforce Owner Reference</div>
+      <div class="cfg-group">
+        <div class="sf-ref-hint" style="margin-bottom:8px">Upload Excel with Opportunity Name (realtor) and Opportunity Owner (BD) columns to suggest assignments in the Unassigned view. Data is saved to Supabase.</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <label class="sf-ref-btn">
+            <i class="ti ti-upload"></i> Upload reference file
+            <input type="file" accept=".xlsx,.xls" onchange="loadSfReference(this)" style="display:none">
+          </label>
+          <span id="sf-ref-status" class="sf-ref-status"></span>
         </div>
       </div>
     </div>

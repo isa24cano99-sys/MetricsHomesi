@@ -58,10 +58,11 @@ async function _runCalc() {
     const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
     const ownerStr = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '').trim();
     const branchStr = String(getField(row, 'Branch', 'branch') || '').trim();
-    if (!byRef.has(key)) byRef.set(key, { name, allDates: [], recentDates: [], owners: new Map(), branches: new Map(), convertedCount: 0 });
+    if (!byRef.has(key)) byRef.set(key, { name, allDates: [], recentDates: [], owners: new Map(), allOwners: new Map(), branches: new Map(), convertedCount: 0 });
     const rec = byRef.get(key);
     if (cd) {
       rec.allDates.push(cd);
+      if (ownerStr) rec.allOwners.set(ownerStr, (rec.allOwners.get(ownerStr) || 0) + 1);
       if (cd >= floorDate && cd <= cutoff) {
         rec.recentDates.push(cd);
         const conv = getField(row, 'Converted', 'converted');
@@ -101,7 +102,7 @@ async function _runCalc() {
     else if (isPA) curPaMap.set(key, (curPaMap.get(key) || 0) + 1);
   }
 
-  state.activeResults = []; state.inactiveResults = [];
+  state.activeResults = []; state.inactiveResults = []; state.unassignedResults = [];
 
   for (const [key, rec] of byRef.entries()) {
     const allSorted = [...rec.allDates].sort((a, b) => a - b);
@@ -123,7 +124,15 @@ async function _runCalc() {
       if (rec.branches.size > 0) { let best = '', bestN = -1; for (const [b, n] of rec.branches.entries()) if (n > bestN) { bestN = n; best = b; } assignedBranch = best; }
     }
 
-    if (!assignedOwner || assignedOwner.trim() === '') continue;
+    if (!assignedOwner || assignedOwner.trim() === '') {
+      const ownersMap = rec.owners.size > 0 ? rec.owners : rec.allOwners;
+      state.unassignedResults.push({
+        key, name: rec.name, isActive, firstDate, lastDate,
+        allTimeCount: rec.allDates.length,
+        leadOwnersSeen: [...ownersMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([o, n]) => o + ' (' + n + ')')
+      });
+      continue;
+    }
 
     const cw = cwMap.get(key) || 0, pa = paMap.get(key) || 0, rat = ratMap.get(key) || 0;
 
@@ -158,6 +167,9 @@ async function _runCalc() {
 
   state.currentMode = document.getElementById('mode-selector').value;
 
+  const uBadge = document.getElementById('unassigned-count-badge');
+  if (uBadge) uBadge.textContent = state.unassignedResults.length;
+
   bus.emit('calc:complete', { windowDays, cutoff, floorDate, inactFloor, allowedOwners });
-  bus.emit('status', { type: 'ok', msg: '✅ Calculation complete — ' + state.activeResults.length + ' active · ' + state.inactiveResults.length + ' inactive' });
+  bus.emit('status', { type: 'ok', msg: '✅ Calculation complete — ' + state.activeResults.length + ' active · ' + state.inactiveResults.length + ' inactive · ' + state.unassignedResults.length + ' unassigned' });
 }

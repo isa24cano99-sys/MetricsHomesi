@@ -1,12 +1,9 @@
 import { state } from './state.js';
-import { norm, parseDate, fmtDate, getField, fmtNow, initials } from './utils.js';
+import { norm, fmtDate, getField, fmtNow, initials } from './utils.js';
 import { BADGE } from './config.js';
 import { sbFetch } from './supabase.js';
 import { renderSummary } from './ui.js';
 import { renderLog } from './log.js';
-
-// Module-level SF reference map — loaded from Excel upload, never persisted
-let _sfRefMap = null;
 
 export function loadSfReference(inputEl) {
   const file = inputEl.files[0];
@@ -14,18 +11,34 @@ export function loadSfReference(inputEl) {
   const statusEl = document.getElementById('sf-ref-status');
   if (statusEl) statusEl.textContent = 'Reading…';
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async ev => {
     try {
       const wb = XLSX.read(ev.target.result, { type: 'binary', cellDates: false });
       const sn = wb.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null });
-      _sfRefMap = new Map();
+      state.realtorOwnerMap = new Map();
+      const dbRows = [];
       for (const row of rows) {
         const name = getField(row, 'Opportunity Name', 'opportunity name', 'Opp Name', 'opp name', 'Realtor', 'realtor', 'Name', 'name');
         const owner = getField(row, 'Opportunity Owner', 'opportunity owner', 'Opp Owner', 'opp owner', 'Owner', 'owner', 'BD', 'bd');
-        if (name && owner) _sfRefMap.set(norm(String(name)), String(owner).trim());
+        if (name && owner) {
+          const key = norm(String(name));
+          const ownerStr = String(owner).trim();
+          state.realtorOwnerMap.set(key, ownerStr);
+          dbRows.push({ realtor_key: key, realtor_name: String(name).trim(), owner: ownerStr });
+        }
       }
-      if (statusEl) statusEl.textContent = '✓ ' + _sfRefMap.size + ' records loaded';
+      if (statusEl) statusEl.textContent = '⏳ Saving ' + dbRows.length + ' records…';
+      const batchSize = 200;
+      for (let i = 0; i < dbRows.length; i += batchSize) {
+        await sbFetch('realtor_owner_map?on_conflict=realtor_key', {
+          method: 'POST',
+          prefer: 'return=minimal,resolution=merge-duplicates',
+          headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+          body: JSON.stringify(dbRows.slice(i, i + batchSize))
+        });
+      }
+      if (statusEl) { statusEl.textContent = '✓ ' + state.realtorOwnerMap.size + ' records saved'; setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 4000); }
       renderUnassigned();
     } catch (e) {
       if (statusEl) statusEl.textContent = '⚠ Error: ' + e.message;
@@ -105,12 +118,12 @@ export function renderAssignCards() {
   const unassigned = allResults.filter(r => getAssignStatus(r.key) === 'unassigned').length;
   document.getElementById('pending-badge').textContent = pending + unassigned;
   const unasgnBadge = document.getElementById('unassigned-count-badge');
-  if (unasgnBadge) unasgnBadge.textContent = unassigned;
+  if (unasgnBadge) unasgnBadge.textContent = state.unassignedResults.length;
   document.getElementById('assign-stats').innerHTML = [
     ['ti-users', 'Total', total, ''],
     ['ti-circle-check', 'Confirmed', confirmed, 'chip-confirmed'],
     ['ti-clock', 'Pending', pending, 'chip-pending'],
-    ['ti-alert-circle', 'No Owner', unassigned, 'chip-unassigned'],
+    ['ti-alert-circle', 'No Owner', state.unassignedResults.length, 'chip-unassigned'],
   ].map(([ic, l, v]) => '<div class="astat"><i class="ti ' + ic + ' astat-icon"></i><div><div class="astat-val">' + v + '</div><div class="astat-lbl">' + l + '</div></div></div>').join('');
 
   const filtActive = state.activeResults.filter(r =>
@@ -224,13 +237,11 @@ export function renderUnassigned() {
   const container = document.getElementById('unassigned-content');
   if (!container) return;
 
-  const allResults = [...state.activeResults, ...state.inactiveResults];
-  const activeKeys = new Set(state.activeResults.map(r => r.key));
   const owners = document.getElementById('owners-list').value
     .split(',').map(s => s.trim().replace(/^["']+|["']+$/g, '').trim()).filter(s => s !== '');
 
-  const sfColVisible = _sfRefMap !== null;
-  const items = allResults.filter(r => getAssignStatus(r.key) === 'unassigned');
+  const sfColVisible = state.realtorOwnerMap.size > 0;
+  const items = state.unassignedResults;
 
   const badge = document.getElementById('unassigned-count-badge');
   if (badge) badge.textContent = items.length;
@@ -240,37 +251,19 @@ export function renderUnassigned() {
     return;
   }
 
-  // Build per-realtor stats from all-time leadsData
-  const rdMap = new Map();
-  for (const row of (state.leadsData || [])) {
-    const ref = getField(row, 'Referred By', 'referred by');
-    if (!ref || !String(ref).trim()) continue;
-    const key = norm(String(ref).trim());
-    const cd = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
-    const ownerStr = String(getField(row, 'Lead Owner', 'lead owner', 'Owner', 'owner') || '').trim();
-    if (!rdMap.has(key)) rdMap.set(key, { lastDate: null, allTime: 0, ownerCounts: new Map() });
-    const d = rdMap.get(key);
-    d.allTime++;
-    if (cd && (!d.lastDate || cd > d.lastDate)) d.lastDate = cd;
-    if (ownerStr) d.ownerCounts.set(ownerStr, (d.ownerCounts.get(ownerStr) || 0) + 1);
-  }
-
   const ownerOpts = '<option value="">— Select Owner —</option>' +
     owners.map(o => '<option value="' + o + '">' + o + '</option>').join('');
 
   const rows = items.map(r => {
-    const d = rdMap.get(r.key) || { lastDate: null, allTime: 0, ownerCounts: new Map() };
-    const isActive = activeKeys.has(r.key);
-    const statusChip = isActive
+    const safeId = r.key.replace(/[^a-z0-9]/g, '_');
+    const statusChip = r.isActive
       ? '<span class="status-chip chip-confirmed" style="font-size:9px;padding:2px 7px">Active</span>'
       : '<span class="status-chip chip-unassigned" style="font-size:9px;padding:2px 7px">Inactive</span>';
-    const topOwners = [...d.ownerCounts.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([o]) => o).join(', ') || '—';
-    const safeId = r.key.replace(/[^a-z0-9]/g, '_');
+    const topOwners = r.leadOwnersSeen.join(', ') || '—';
 
     let sfCell = '';
     if (sfColVisible) {
-      const suggestion = _sfRefMap.get(norm(r.name));
+      const suggestion = state.realtorOwnerMap.get(norm(r.name));
       if (!suggestion) {
         sfCell = '<td style="color:#AAB4CC;font-size:11px;text-align:center">—</td>';
       } else if (owners.includes(suggestion)) {
@@ -284,8 +277,8 @@ export function renderUnassigned() {
     return '<tr>' +
       '<td style="font-weight:600;min-width:140px">' + r.name + '</td>' +
       '<td>' + statusChip + '</td>' +
-      '<td class="dt" style="white-space:nowrap">' + (d.lastDate ? fmtDate(d.lastDate) : '—') + '</td>' +
-      '<td style="text-align:center;font-weight:700;color:var(--hs-navy)">' + d.allTime + '</td>' +
+      '<td class="dt" style="white-space:nowrap">' + (r.lastDate ? fmtDate(r.lastDate) : '—') + '</td>' +
+      '<td style="text-align:center;font-weight:700;color:var(--hs-navy)">' + r.allTimeCount + '</td>' +
       '<td style="font-size:11px;color:#667799;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + topOwners + '">' + topOwners + '</td>' +
       sfCell +
       '<td><select id="uao_' + safeId + '" class="uassign-sel">' + ownerOpts + '</select></td>' +
@@ -314,8 +307,9 @@ export function saveUnassigned(key) {
   const branchEl = document.getElementById('uab_' + safeKey);
   if (ownerEl && ownerEl.value) updateAssign(key, 'owner', ownerEl.value);
   if (branchEl) updateAssign(key, 'branch', branchEl.value);
-  // confirmAssign reads ao_/ab_ from DOM; since those don't exist here it falls
-  // back to the masterMap values we just set via updateAssign above
+  // Remove from unassignedResults so the row disappears without a full recalc
+  state.unassignedResults = state.unassignedResults.filter(r => r.key !== key);
+  // confirmAssign reads ao_/ab_ from DOM; falls back to masterMap set above
   confirmAssign(key);
   renderUnassigned();
 }

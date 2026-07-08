@@ -145,6 +145,12 @@ async function initApp() {
     }
     const logs = await sbFetch('change_log?select=*&order=created_at.desc&limit=200');
     state.changeLog = (logs || []).map(l => ({ date: l.change_date, realtor: l.realtor, from: l.from_assignment, to: l.to_assignment }));
+    try {
+      const romRows = await sbFetch('realtor_owner_map?select=realtor_key,owner');
+      for (const r of (romRows || [])) {
+        if (r.realtor_key && r.owner) state.realtorOwnerMap.set(r.realtor_key, r.owner);
+      }
+    } catch (_) { /* table may not exist yet */ }
     await loadKpiSettings();
 
     if (hasData) {
