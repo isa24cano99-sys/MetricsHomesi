@@ -107,6 +107,7 @@ export function showLeadDetail(key, realtorName) {
   const head = '<tr>' +
     '<th>#</th>' +
     '<th>Lead Name</th>' +
+    '<th>Lead Owner</th>' +
     '<th>Lead Status</th>' +
     '<th>Created Date</th>' +
     '</tr>';
@@ -115,19 +116,34 @@ export function showLeadDetail(key, realtorName) {
     const ln = String(getField(row, 'Last Name', 'last name') || '').trim();
     const co = String(getField(row, 'Company / Account', 'company / account') || '').trim();
     const name = (fn + ' ' + ln).trim() || co || '—';
+    const leadOwner = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '—').trim();
     const status = String(getField(row, 'Lead Status', 'lead status', 'status') || '—').trim();
     const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
     return '<tr>' +
       '<td style="color:#8899BB;font-size:10px">' + (i + 1) + '</td>' +
       '<td style="font-weight:600">' + name + '</td>' +
+      '<td style="font-size:11px;color:#556080">' + leadOwner + '</td>' +
       '<td><span class="modal-stage stage-other">' + status + '</span></td>' +
       '<td class="dt">' + fmtDate(cd) + '</td>' +
       '</tr>';
   }).join('');
+  const csvData = [
+    ['#', 'Lead Name', 'Lead Owner', 'Lead Status', 'Created Date'],
+    ...rows.map((row, i) => {
+      const fn = String(getField(row, 'First Name', 'first name') || '').trim();
+      const ln = String(getField(row, 'Last Name', 'last name') || '').trim();
+      const co = String(getField(row, 'Company / Account', 'company / account') || '').trim();
+      const name = (fn + ' ' + ln).trim() || co || '';
+      const leadOwner = String(getField(row, 'Lead Owner', 'lead owner', 'owner') || '').trim();
+      const status = String(getField(row, 'Lead Status', 'lead status', 'status') || '').trim();
+      const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
+      return [i + 1, name, leadOwner, status, fmtDate(cd)];
+    })
+  ];
   openModal(
     realtorName + ' — Period Leads',
     rows.length + ' lead' + (rows.length !== 1 ? 's' : '') + ' in the selected window',
-    head, body
+    head, body, csvData
   );
 }
 
