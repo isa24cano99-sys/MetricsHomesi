@@ -8,7 +8,7 @@ import { renderAssignCards, clearAssignFilters, confirmAssign, unconfirm, update
 import { renderLog } from './log.js';
 import { exportCSV, exportMasterCSV, exportLog, dl } from './export.js';
 import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, showConvertedLeadsDetail, openModal, closeModal } from './modal.js';
-import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, downloadCwOwnerCsv } from './pipeline.js';
+import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, clearClosedWonFilters, showPipelineStageDetail, downloadCwOwnerCsv } from './pipeline.js';
 import { initTrends, renderTrends } from './trends.js';
 import { initPerformance, renderPerformance, loadKpiSettings, saveKpiSettings, saveOwnersList } from './performance.js';
 
@@ -181,7 +181,7 @@ Object.assign(window, {
   exportCSV, exportMasterCSV, exportLog, dl,
   closeModal, showAllLeadsForRealtor,
   handleFile,
-  renderPipeline, renderClosedWon, clearPipelineFilters, showPipelineStageDetail, renderTrends,
+  renderPipeline, renderClosedWon, clearPipelineFilters, clearClosedWonFilters, showPipelineStageDetail, renderTrends,
   renderPerformance, saveKpiSettings, saveOwnersList
 });
 

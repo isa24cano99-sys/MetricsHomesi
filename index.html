@@ -242,6 +242,9 @@
             <label class="lbl">Branch</label>
             <select id="pl-filter-cw-branch" multiple size="3" onchange="renderClosedWon()"></select>
           </div>
+          <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+            <button class="btn-sm" onclick="clearClosedWonFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+          </div>
         </div>
         <div class="filter-hint">Ctrl+click to select multiple</div>
         <div id="pl-cw-content" style="margin-top:14px"></div>

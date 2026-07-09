@@ -485,6 +485,16 @@ export function clearPipelineFilters() {
   renderClosedWon();
 }
 
+export function clearClosedWonFilters() {
+  const now = new Date();
+  const curYear = String(now.getFullYear());
+  const curMonth = String(now.getMonth());
+  Array.from(document.getElementById('pl-cw-month').options).forEach(o => { o.selected = o.value === curMonth; });
+  Array.from(document.getElementById('pl-cw-year').options).forEach(o => { o.selected = o.value === curYear; });
+  Array.from(document.getElementById('pl-filter-cw-branch').options).forEach(o => o.selected = false);
+  renderClosedWon();
+}
+
 export function downloadCwOwnerCsv(owner) {
   const rows = _cwCsvCache.get(owner);
   if (!rows) return;
