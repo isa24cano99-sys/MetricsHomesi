@@ -79,39 +79,14 @@ function fmtMoneyFull(v) {
   return (v < 0 ? '-' : '') + '$' + Math.abs(Math.round(v)).toLocaleString('en-US');
 }
 
-function weekOfMonth(date) {
-  const y = date.getUTCFullYear(), m = date.getUTCMonth();
-  const first = new Date(Date.UTC(y, m, 1));
-  const dow = first.getUTCDay();
-  const daysBack = dow === 0 ? 6 : dow - 1;
-  const week1Mon = new Date(Date.UTC(y, m, 1 - daysBack));
-  return Math.floor((date - week1Mon) / 604800000) + 1;
-}
-
-function endOfWeekN(year, month0, n) {
-  const first = new Date(Date.UTC(year, month0, 1));
-  const dow = first.getUTCDay();
-  const daysBack = dow === 0 ? 6 : dow - 1;
-  const week1Mon = new Date(Date.UTC(year, month0, 1 - daysBack));
-  const result = new Date(week1Mon);
-  result.setUTCDate(result.getUTCDate() + n * 7 - 1);
-  result.setUTCHours(23, 59, 59, 999);
-  return result;
-}
-
 function getPeriodBounds(year, months0, today, isCompare) {
   const sorted = [...months0].sort((a, b) => a - b);
   const start = new Date(Date.UTC(year, sorted[0], 1));
-  let end;
-  if (isCompare) {
-    const wn = weekOfMonth(today);
-    const lastM = sorted[sorted.length - 1];
-    const rawEnd = endOfWeekN(year, lastM, wn);
-    const monthCap = new Date(Date.UTC(year, lastM + 1, 0, 23, 59, 59, 999));
-    end = rawEnd < monthCap ? rawEnd : monthCap;
-  } else {
-    end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59, 999));
-  }
+  const lastM = sorted[sorted.length - 1];
+  const isCurrent = !isCompare && year === today.getUTCFullYear() && sorted.includes(today.getUTCMonth());
+  const end = isCurrent
+    ? new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59, 999))
+    : new Date(Date.UTC(year, lastM + 1, 0, 23, 59, 59, 999));
   return { start, end };
 }
 
@@ -320,10 +295,18 @@ function hfChip(val, avg) {
   return '<span class="perf-hf-chip perf-hf-avg">&#8776; avg</span>';
 }
 
+function goalChip(pct) {
+  if (pct >= 100) return '<span class="perf-goal-chip perf-goal-chip-above">&#9650; above goal</span>';
+  if (pct >= 70)  return '<span class="perf-goal-chip perf-goal-chip-near">&#8776; near goal</span>';
+  return '<span class="perf-goal-chip perf-goal-chip-below">&#9660; below goal</span>';
+}
+
 function pLabel(year, months0, today, isCompare) {
   const s = [...months0].sort((a, b) => a - b);
   const mStr = s.length === 1 ? MS_SHORT[s[0]] : MS_SHORT[s[0]] + '–' + MS_SHORT[s[s.length - 1]];
-  return mStr + ' ' + year + (isCompare ? ' (wk ' + weekOfMonth(today) + ' cut)' : ' (thru today)');
+  if (isCompare) return mStr + ' ' + year + ' (full month)';
+  const isCurrent = year === today.getUTCFullYear() && s.includes(today.getUTCMonth());
+  return mStr + ' ' + year + (isCurrent ? ' (thru today)' : ' (full month)');
 }
 
 // ── Modal builders ──────────────────────────────────────────────────────────
@@ -530,10 +513,8 @@ export function renderPerformance() {
   }
 
   content.innerHTML =
-    // Owner heading — main title of the report
     '<div class="perf-owner-heading">' + owner + '</div>' +
 
-    // Period banner (no owner chip)
     '<div class="perf-banner">' +
       '<span class="perf-banner-main">' + mainLbl + '</span>' +
       (hasCmp ? '<span class="perf-banner-vs">vs</span><span class="perf-banner-cmp">' + cmpLbl + '</span>' : '') +
@@ -544,20 +525,40 @@ export function renderPerformance() {
     // ── Card 1: B2C Goal ──
     '<div class="perf-kpi-card">' +
       '<div class="perf-card-tag">B2C GOAL PERFORMANCE</div>' +
-      '<div class="perf-card-label">Cumulative Loan Amount</div>' +
-      '<button class="perf-clickable-val" data-perf-modal="mainLoan">' + fmtMoney(mainLoan) + '</button>' +
-      '<div class="perf-card-exact">' + fmtMoneyFull(mainLoan) + '</div>' +
-      goalBar(loanPct) +
-      '<div class="perf-card-pct" style="color:' + loanCol + '">' + loanPct + '% <span class="perf-pct-of">of goal</span></div>' +
-      '<div class="perf-card-goal-lbl">Goal &middot; ' + fmtMoneyFull(loanGoal) + '</div>' +
+      '<div class="perf-main-section">' +
+        '<div class="perf-two-col">' +
+          '<div class="perf-col">' +
+            '<div class="perf-col-label">CUMULATIVE</div>' +
+            '<button class="perf-clickable-val" data-perf-modal="mainLoan">' + fmtMoney(mainLoan) + '</button>' +
+            '<div class="perf-card-exact">' + fmtMoneyFull(mainLoan) + '</div>' +
+          '</div>' +
+          '<div class="perf-col perf-col-secondary">' +
+            '<div class="perf-col-label">GOAL</div>' +
+            '<div class="perf-col-goal-val">' + fmtMoney(loanGoal) + '</div>' +
+          '</div>' +
+        '</div>' +
+        goalBar(loanPct) +
+        '<div class="perf-pct-row">' +
+          '<span class="perf-big-pct" style="color:' + loanCol + '">' + loanPct + '%<span class="perf-pct-of"> of goal</span></span>' +
+          goalChip(loanPct) +
+        '</div>' +
+      '</div>' +
       (hasCmp
-        ? '<div class="perf-cmp-block">' +
-            '<div class="perf-cmp-header">vs ' + cmpLbl + '</div>' +
-            '<div class="perf-cmp-metric">' +
-              '<div class="perf-cmp-metric-label">Cumulative Loan Amount</div>' +
-              '<button class="perf-cmp-metric-val perf-cmp-clickable" data-perf-modal="cmpLoan">' + fmtMoney(cmpLoan) + '</button>' +
+        ? '<div class="perf-cmp-section">' +
+            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
+            '<div class="perf-two-col">' +
+              '<div class="perf-col">' +
+                '<div class="perf-col-label">CUMULATIVE</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpLoan">' + fmtMoney(cmpLoan) + '</button>' +
+              '</div>' +
+              '<div class="perf-col perf-col-secondary">' +
+                '<div class="perf-col-label">GOAL %</div>' +
+                '<div class="perf-cmp-pct-val">' + (cmpLoanPct !== null ? cmpLoanPct + '% of goal' : '—') + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="perf-change-row">' +
+              '<span class="perf-change-lbl">CHANGE</span>' +
               dChipMoney(mainLoan, cmpLoan) +
-              (cmpLoanPct !== null ? '<div class="perf-cmp-metric-sub">' + cmpLoanPct + '% of goal</div>' : '') +
             '</div>' +
           '</div>'
         : '') +
@@ -566,20 +567,41 @@ export function renderPerformance() {
     // ── Card 2: Pipeline Activity ──
     '<div class="perf-kpi-card">' +
       '<div class="perf-card-tag">PIPELINE ACTIVITY</div>' +
-      '<div class="perf-card-label">Opportunities Created</div>' +
-      '<button class="perf-clickable-val" data-perf-modal="mainPipe">' + mainPipe.created + '</button>' +
-      '<div class="perf-card-exact">Still Active: <strong>' + mainPipe.stillActive + '</strong> / ' + mainPipe.created + '</div>' +
-      goalBar(oppsPct) +
-      '<div class="perf-card-pct" style="color:' + oppsCol + '">' + oppsPct + '% <span class="perf-pct-of">of goal</span></div>' +
-      '<div class="perf-card-goal-lbl">Goal &middot; ' + oppsGoal + ' opportunities</div>' +
+      '<div class="perf-main-section">' +
+        '<div class="perf-two-col">' +
+          '<div class="perf-col">' +
+            '<div class="perf-col-label">OPP. CREATED</div>' +
+            '<button class="perf-clickable-val" data-perf-modal="mainPipe">' + mainPipe.created + '</button>' +
+            '<div class="perf-card-exact">Still Active: <strong>' + mainPipe.stillActive + '</strong> / ' + mainPipe.created + '</div>' +
+          '</div>' +
+          '<div class="perf-col perf-col-secondary">' +
+            '<div class="perf-col-label">GOAL</div>' +
+            '<div class="perf-col-goal-val">' + oppsGoal + '</div>' +
+          '</div>' +
+        '</div>' +
+        goalBar(oppsPct) +
+        '<div class="perf-pct-row">' +
+          '<span class="perf-big-pct" style="color:' + oppsCol + '">' + oppsPct + '%<span class="perf-pct-of"> of goal</span></span>' +
+          goalChip(oppsPct) +
+        '</div>' +
+      '</div>' +
       (hasCmp
-        ? '<div class="perf-cmp-block">' +
-            '<div class="perf-cmp-header">vs ' + cmpLbl + '</div>' +
-            '<div class="perf-cmp-metric">' +
-              '<div class="perf-cmp-metric-label">Opportunities Created</div>' +
-              '<button class="perf-cmp-metric-val perf-cmp-clickable" data-perf-modal="cmpPipe">' + cmpPipe.created + '</button>' +
+        ? '<div class="perf-cmp-section">' +
+            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
+            '<div class="perf-two-col">' +
+              '<div class="perf-col">' +
+                '<div class="perf-col-label">OPP. CREATED</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpPipe">' + cmpPipe.created + '</button>' +
+                '<div class="perf-cmp-metric-sub">Active: ' + cmpPipe.stillActive + '</div>' +
+              '</div>' +
+              '<div class="perf-col perf-col-secondary">' +
+                '<div class="perf-col-label">GOAL %</div>' +
+                '<div class="perf-cmp-pct-val">' + (cmpOppsPct !== null ? cmpOppsPct + '% of goal' : '—') + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="perf-change-row">' +
+              '<span class="perf-change-lbl">CHANGE</span>' +
               dChipInt(mainPipe.created, cmpPipe.created) +
-              '<div class="perf-cmp-metric-sub">Active: ' + cmpPipe.stillActive + (cmpOppsPct !== null ? ' &nbsp;&middot; ' + cmpOppsPct + '% of goal' : '') + '</div>' +
             '</div>' +
           '</div>'
         : '') +
@@ -588,42 +610,44 @@ export function renderPerformance() {
     // ── Card 3: B2B Behavior ──
     '<div class="perf-kpi-card">' +
       '<div class="perf-card-tag">B2B BEHAVIOR &mdash; HUNTING / FARMING</div>' +
-      '<div class="perf-hf-row">' +
-        '<div class="perf-hf-block">' +
-          '<div class="perf-card-label">Hunting</div>' +
-          '<button class="perf-clickable-val" style="color:#A32D2D" data-perf-modal="mainHunting">' + mainHF.hunting + '</button>' +
-          '<div class="perf-card-exact">' + hPct + '% of active</div>' +
-          hfChip(mainHF.hunting, teamAvg.avgH) +
+      '<div class="perf-main-section">' +
+        '<div class="perf-hf-row">' +
+          '<div class="perf-hf-block">' +
+            '<div class="perf-col-label" style="color:#A32D2D">HUNTING</div>' +
+            '<button class="perf-clickable-val" style="color:#A32D2D" data-perf-modal="mainHunting">' + mainHF.hunting + '</button>' +
+            '<div class="perf-card-exact">' + hPct + '% of active</div>' +
+            hfChip(mainHF.hunting, teamAvg.avgH) +
+          '</div>' +
+          '<div class="perf-hf-divider"></div>' +
+          '<div class="perf-hf-block">' +
+            '<div class="perf-col-label" style="color:#085041">FARMING</div>' +
+            '<button class="perf-clickable-val" style="color:#085041" data-perf-modal="mainFarming">' + mainHF.farming + '</button>' +
+            '<div class="perf-card-exact">' + fPct + '% of active</div>' +
+            hfChip(mainHF.farming, teamAvg.avgF) +
+          '</div>' +
         '</div>' +
-        '<div class="perf-hf-divider"></div>' +
-        '<div class="perf-hf-block">' +
-          '<div class="perf-card-label">Farming</div>' +
-          '<button class="perf-clickable-val" style="color:#085041" data-perf-modal="mainFarming">' + mainHF.farming + '</button>' +
-          '<div class="perf-card-exact">' + fPct + '% of active</div>' +
-          hfChip(mainHF.farming, teamAvg.avgF) +
+        '<div class="perf-hf-avg-row">' +
+          '<span class="perf-hf-avg-label">Team avg</span>' +
+          '<span class="perf-hf-avg-val" style="color:#A32D2D">' + teamAvg.avgH.toFixed(1) + '</span>' +
+          '<span class="perf-hf-avg-sep">H</span>' +
+          '<span class="perf-hf-avg-sep" style="color:#CCD5E0;margin:0 2px">/</span>' +
+          '<span class="perf-hf-avg-val" style="color:#085041">' + teamAvg.avgF.toFixed(1) + '</span>' +
+          '<span class="perf-hf-avg-sep">F</span>' +
+          '<span class="perf-hf-avg-note">global Metrics window</span>' +
         '</div>' +
-      '</div>' +
-      '<div class="perf-hf-avg-row">' +
-        '<span class="perf-hf-avg-label">Team avg</span>' +
-        '<span class="perf-hf-avg-val" style="color:#A32D2D">' + teamAvg.avgH.toFixed(1) + '</span>' +
-        '<span class="perf-hf-avg-sep">H</span>' +
-        '<span class="perf-hf-avg-sep" style="color:#CCD5E0;margin:0 2px">/</span>' +
-        '<span class="perf-hf-avg-val" style="color:#085041">' + teamAvg.avgF.toFixed(1) + '</span>' +
-        '<span class="perf-hf-avg-sep">F</span>' +
-        '<span class="perf-hf-avg-note">global Metrics window</span>' +
       '</div>' +
       (hasCmp && cmpHF
-        ? '<div class="perf-cmp-block">' +
-            '<div class="perf-cmp-header">vs ' + cmpLbl + ' &middot; ' + windowDays + '-day window</div>' +
+        ? '<div class="perf-cmp-section">' +
+            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + ' &middot; ' + windowDays + '-DAY WINDOW</div>' +
             '<div class="perf-cmp-hf-row">' +
-              '<div class="perf-cmp-hf-block">' +
-                '<div class="perf-cmp-metric-label" style="color:#A32D2D">Hunting</div>' +
-                '<button class="perf-cmp-metric-val perf-cmp-clickable" style="color:#A32D2D" data-perf-modal="cmpHunting">' + cmpHF.hunting + '</button>' +
+              '<div class="perf-cmp-hf-col">' +
+                '<div class="perf-col-label" style="color:#A32D2D">HUNTING</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" style="color:#A32D2D" data-perf-modal="cmpHunting">' + cmpHF.hunting + '</button>' +
                 dChipInt(mainHF.hunting, cmpHF.hunting) +
               '</div>' +
-              '<div class="perf-cmp-hf-block">' +
-                '<div class="perf-cmp-metric-label" style="color:#085041">Farming</div>' +
-                '<button class="perf-cmp-metric-val perf-cmp-clickable" style="color:#085041" data-perf-modal="cmpFarming">' + cmpHF.farming + '</button>' +
+              '<div class="perf-cmp-hf-col">' +
+                '<div class="perf-col-label" style="color:#085041">FARMING</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" style="color:#085041" data-perf-modal="cmpFarming">' + cmpHF.farming + '</button>' +
                 dChipInt(mainHF.farming, cmpHF.farming) +
               '</div>' +
             '</div>' +
