@@ -79,6 +79,11 @@ function fmtMoneyFull(v) {
   return (v < 0 ? '-' : '') + '$' + Math.abs(Math.round(v)).toLocaleString('en-US');
 }
 
+function fmtShortDate(d) {
+  if (!d) return '?';
+  return MS_SHORT[d.getUTCMonth()] + ' ' + d.getUTCDate();
+}
+
 function getPeriodBounds(year, months0, today, isCompare) {
   const sorted = [...months0].sort((a, b) => a - b);
   const start = new Date(Date.UTC(year, sorted[0], 1));
@@ -121,23 +126,7 @@ function calcPipelineActivity(owner, start, end) {
   return { created, stillActive };
 }
 
-// Main period H/F: reads state.activeResults directly (guaranteed correct match with Metrics)
-function getMainHFDetail(owner) {
-  const huntingRealtors = [], farmingRealtors = [];
-  for (const r of (state.activeResults || [])) {
-    if (r.assignedOwner !== owner) continue;
-    const detail = { name: r.name, branch: r.assignedBranch || '—', firstDate: r.firstDate, cnt: r.cnt, med: r.med };
-    if (r.med && r.med.startsWith('Hunting')) huntingRealtors.push(detail);
-    else farmingRealtors.push(detail);
-  }
-  return {
-    hunting: huntingRealtors.length, farming: farmingRealtors.length,
-    total: huntingRealtors.length + farmingRealtors.length,
-    huntingRealtors, farmingRealtors
-  };
-}
-
-// Historical H/F window: replicates calc.js assignment logic for a specific owner and window
+// H/F window: replicates calc.js assignment logic for a specific owner and window
 function calcHuntingFarmingForWindow(owner, floorDate, cutoffDate) {
   const reactDays = parseInt((document.getElementById('react-days') || {}).value) || 150;
 
@@ -232,33 +221,17 @@ function calcHuntingFarmingForWindow(owner, floorDate, cutoffDate) {
   };
 }
 
-// Shift the H/F window cutoff to the same day-of-month in the comparison period
-function getCmpHFWindow(globalCutoff, windowDays, cmpYear, cmpMonths0) {
-  const sorted = [...cmpMonths0].sort((a, b) => a - b);
-  const lastM = sorted[sorted.length - 1];
-  const dayOfMonth = globalCutoff.getUTCDate();
-  const lastDayOfCmpMonth = new Date(Date.UTC(cmpYear, lastM + 1, 0)).getUTCDate();
-  const clampedDay = Math.min(dayOfMonth, lastDayOfCmpMonth);
-  const cmpCutoff = new Date(Date.UTC(cmpYear, lastM, clampedDay, 23, 59, 59, 999));
-  const cmpFloor = new Date(cmpCutoff);
-  cmpFloor.setUTCDate(cmpFloor.getUTCDate() - windowDays);
-  return { cmpCutoff, cmpFloor };
-}
-
-function calcTeamAvgHF() {
+function calcTeamAvgHF(cutoff, baseDate) {
   const owners = getAllowedOwners();
-  const map = new Map(owners.map(o => [o, { h: 0, f: 0 }]));
-  for (const r of (state.activeResults || [])) {
-    const d = map.get(r.assignedOwner);
-    if (!d) continue;
-    if (r.med && r.med.startsWith('Hunting')) d.h++;
-    else d.f++;
+  const hVals = [], fVals = [];
+  for (const o of owners) {
+    const hf = calcHuntingFarmingForWindow(o, baseDate, cutoff);
+    if (hf.hunting >= 1) hVals.push(hf.hunting);
+    if (hf.farming >= 1) fVals.push(hf.farming);
   }
-  const vals = [...map.values()];
-  const aH = vals.filter(v => v.h >= 1), aF = vals.filter(v => v.f >= 1);
   return {
-    avgH: aH.length ? aH.reduce((s, v) => s + v.h, 0) / aH.length : 0,
-    avgF: aF.length ? aF.reduce((s, v) => s + v.f, 0) / aF.length : 0
+    avgH: hVals.length ? hVals.reduce((s, v) => s + v, 0) / hVals.length : 0,
+    avgF: fVals.length ? fVals.reduce((s, v) => s + v, 0) / fVals.length : 0
   };
 }
 
@@ -461,24 +434,43 @@ export function renderPerformance() {
   const hasCmp = cmpMonths0.length > 0;
   const cmpBounds = hasCmp ? getPeriodBounds(cmpYear, cmpMonths0, today, true) : null;
 
-  // Global Metrics window settings (for shifting the H/F comparison window)
-  const globalCutoffStr = (document.getElementById('cutoff-date') || {}).value || '';
-  const globalCutoff = globalCutoffStr ? new Date(globalCutoffStr + 'T23:59:59Z') : today;
   const windowDays = parseInt((document.getElementById('window-days') || {}).value) || 60;
+
+  // Main H/F window derived from Performance period selection
+  const mainSorted = [...months0].sort((a, b) => a - b);
+  const mainLastM  = mainSorted[mainSorted.length - 1];
+  const isMainCurrent = year === today.getUTCFullYear() && months0.includes(today.getUTCMonth());
+  const mainHFCutoff = isMainCurrent
+    ? new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59, 999))
+    : new Date(Date.UTC(year, mainLastM + 1, 0, 23, 59, 59, 999));
+  const mainHFBase = new Date(mainHFCutoff);
+  mainHFBase.setUTCDate(mainHFBase.getUTCDate() - windowDays);
 
   const mainLoan = calcLoanAmount(owner, start, end);
   const mainPipe = calcPipelineActivity(owner, start, end);
-  const mainHF   = getMainHFDetail(owner);
-  const teamAvg  = calcTeamAvgHF();
+  const mainHF   = calcHuntingFarmingForWindow(owner, mainHFBase, mainHFCutoff);
+  const teamAvg  = calcTeamAvgHF(mainHFCutoff, mainHFBase);
 
   const cmpLoan = hasCmp ? calcLoanAmount(owner, cmpBounds.start, cmpBounds.end) : null;
   const cmpPipe = hasCmp ? calcPipelineActivity(owner, cmpBounds.start, cmpBounds.end) : null;
 
-  // Comparison H/F uses a shifted window: same windowDays, cutoff shifted to same day-of-month in comparison period
-  let cmpHF = null;
+  // Comparison H/F window: fully-past month uses last day; current month uses same day as main cutoff
+  let cmpHF = null, cmpHFCutoff = null, cmpHFBase = null, cmpHFLbl = '';
   if (hasCmp && state.leadsData && state.leadsData.length) {
-    const { cmpFloor, cmpCutoff } = getCmpHFWindow(globalCutoff, windowDays, cmpYear, cmpMonths0);
-    cmpHF = calcHuntingFarmingForWindow(owner, cmpFloor, cmpCutoff);
+    const cmpSorted = [...cmpMonths0].sort((a, b) => a - b);
+    const lastCmpM = cmpSorted[cmpSorted.length - 1];
+    const isCmpCurrent = cmpYear === today.getUTCFullYear() && cmpMonths0.includes(today.getUTCMonth());
+    if (isCmpCurrent) {
+      const dayOfMonth = mainHFCutoff.getUTCDate();
+      const lastDayOfCmpMonth = new Date(Date.UTC(cmpYear, lastCmpM + 1, 0)).getUTCDate();
+      cmpHFCutoff = new Date(Date.UTC(cmpYear, lastCmpM, Math.min(dayOfMonth, lastDayOfCmpMonth), 23, 59, 59, 999));
+    } else {
+      cmpHFCutoff = new Date(Date.UTC(cmpYear, lastCmpM + 1, 0, 23, 59, 59, 999));
+    }
+    cmpHFBase = new Date(cmpHFCutoff);
+    cmpHFBase.setUTCDate(cmpHFBase.getUTCDate() - windowDays);
+    cmpHF = calcHuntingFarmingForWindow(owner, cmpHFBase, cmpHFCutoff);
+    cmpHFLbl = ('VS ' + MS_SHORT[lastCmpM] + ' ' + cmpYear + ' · ' + fmtShortDate(cmpHFBase) + ' → ' + fmtShortDate(cmpHFCutoff)).toUpperCase();
   }
 
   const loanGoal = kpiGoals.loanAmount, oppsGoal = kpiGoals.pipelineOpps;
@@ -633,12 +625,12 @@ export function renderPerformance() {
           '<span class="perf-hf-avg-sep" style="color:#CCD5E0;margin:0 2px">/</span>' +
           '<span class="perf-hf-avg-val" style="color:#085041">' + teamAvg.avgF.toFixed(1) + '</span>' +
           '<span class="perf-hf-avg-sep">F</span>' +
-          '<span class="perf-hf-avg-note">global Metrics window</span>' +
+          '<span class="perf-hf-avg-note">' + fmtShortDate(mainHFBase) + ' → ' + fmtShortDate(mainHFCutoff) + '</span>' +
         '</div>' +
       '</div>' +
       (hasCmp && cmpHF
         ? '<div class="perf-cmp-section">' +
-            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + ' &middot; ' + windowDays + '-DAY WINDOW</div>' +
+            '<div class="perf-cmp-vs-hdr">' + cmpHFLbl + '</div>' +
             '<div class="perf-cmp-hf-row">' +
               '<div class="perf-cmp-hf-col">' +
                 '<div class="perf-col-label" style="color:#A32D2D">HUNTING</div>' +
