@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { norm, fmtDate, getField, fmtNow, initials } from './utils.js';
+import { norm, fmtDate, parseDate, getField, fmtNow, initials } from './utils.js';
 import { BADGE } from './config.js';
 import { sbFetch } from './supabase.js';
 import { renderSummary } from './ui.js';
@@ -363,40 +363,121 @@ export function renderUnassigned() {
   }
 }
 
+function _computeResultFields(key, uEntry) {
+  const cutoffStr = document.getElementById('cutoff-date').value;
+  const windowDays = parseInt(document.getElementById('window-days').value) || 60;
+  const reactDays = parseInt(document.getElementById('react-days').value) || 150;
+  const cutoff = new Date(cutoffStr + 'T23:59:59Z');
+  const floorDate = new Date(cutoff); floorDate.setUTCDate(floorDate.getUTCDate() - windowDays);
+  const reactThreshold = new Date(cutoff); reactThreshold.setUTCDate(reactThreshold.getUTCDate() - reactDays);
+
+  const allDates = [], recentDates = [], leadRows = [];
+  let convertedCount = 0;
+  for (const row of (state.leadsData || [])) {
+    const ref = getField(row, 'Referred By', 'referred by');
+    if (!ref || norm(String(ref).trim()) !== key) continue;
+    const cd = parseDate(getField(row, 'Created Date', 'Create Date', 'created date', 'create date'));
+    if (cd) {
+      allDates.push(cd);
+      if (cd >= floorDate && cd <= cutoff) {
+        recentDates.push(cd);
+        leadRows.push(row);
+        const conv = getField(row, 'Converted', 'converted');
+        if (conv === true || String(conv).trim().toLowerCase() === 'true') convertedCount++;
+      }
+    }
+  }
+
+  const uniqueDays = [], seenD = new Set();
+  for (const d of [...allDates].sort((a, b) => a - b)) {
+    const dk = d.toISOString().slice(0, 10);
+    if (!seenD.has(dk)) { seenD.add(dk); uniqueDays.push(d); }
+  }
+  const firstDate = uniqueDays[0] || uEntry.firstDate;
+  const lastDate = uniqueDays[uniqueDays.length - 1] || uEntry.lastDate;
+  const penult = uniqueDays.length >= 2 ? uniqueDays[uniqueDays.length - 2] : null;
+  const cnt = recentDates.length;
+
+  let cw = 0, pa = 0, rat = 0, curCw = 0, curRat = 0, curPa = 0;
+  const oppRows = [];
+  for (const row of (state.oppData || [])) {
+    const ref = getField(row, 'Referred By', 'referred by');
+    if (!ref || norm(String(ref).trim()) !== key) continue;
+    oppRows.push(row);
+    const stage = String(getField(row, 'Stage', 'stage') || '').trim().toLowerCase();
+    const disbDate = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
+    const paDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date'));
+    const ratDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
+    if (stage !== 'closed lost') {
+      if (stage === 'closed won' && disbDate && disbDate >= floorDate && disbDate <= cutoff) cw++;
+    }
+    if (paDate && paDate >= floorDate && paDate <= cutoff) pa++;
+    if (ratDate && ratDate >= floorDate && ratDate <= cutoff) rat++;
+    if (stage === 'closed lost') continue;
+    const isCW = stage === 'closed won' && disbDate && disbDate >= floorDate && disbDate <= cutoff;
+    const isRat = !isCW && ratDate && ratDate >= floorDate && ratDate <= cutoff;
+    const isPA = !isCW && !isRat && paDate && paDate >= floorDate && paDate <= cutoff;
+    if (isCW) curCw++;
+    else if (isRat) curRat++;
+    else if (isPA) curPa++;
+  }
+
+  const c1 = cnt > 0;
+  const c2 = firstDate ? firstDate >= floorDate : false;
+  const c3 = firstDate ? firstDate < floorDate : false;
+  const c4 = penult ? penult <= reactThreshold : false;
+  const c5 = cw > 0, c6 = pa > 0, c7 = rat > 0;
+  let med;
+  if      (c1 && c2 && c5)  med = 'Hunting New - Closing';
+  else if (c1 && c2 && c7)  med = 'Hunting New - Ratified';
+  else if (c1 && c2 && c6)  med = 'Hunting New - Pre Approval';
+  else if (c1 && c2)        med = 'Hunting New';
+  else if (c1 && c4 && c5)  med = 'Hunting Rescued - Closing';
+  else if (c1 && c4 && c7)  med = 'Hunting Rescued - Ratified';
+  else if (c1 && c4 && c6)  med = 'Hunting Rescued - Pre Approval';
+  else if (c1 && c4)        med = 'Hunting Rescued';
+  else if (c1 && c3 && c5)  med = 'Farming Closing';
+  else if (c1 && c3 && c7)  med = 'Farming Ratified';
+  else if (c1 && c3 && c6)  med = 'Farming Pre Approval';
+  else if (c1 && c3)        med = 'Farming Lead';
+  else                      med = 'Sin medición';
+
+  return { cnt, convertedCount, firstDate, lastDate, penult, c1, c2, c3, c4, cw, pa, rat, curCw, curRat, curPa, med, leadRows, oppRows, cutoff };
+}
+
 export function saveUnassigned(key) {
   const safeKey = key.replace(/[^a-z0-9]/g, '_');
   const ownerEl = document.getElementById('uao_' + safeKey);
   const branchEl = document.getElementById('uab_' + safeKey);
   const owner = (ownerEl && ownerEl.value) ? ownerEl.value : '';
   const branch = branchEl ? (branchEl.value || '') : '';
-  if (!owner) return; // require an owner selection before saving
+  if (!owner) return;
 
-  // Grab entry data before removing it
   const uEntry = state.unassignedResults.find(r => r.key === key);
   state.unassignedResults = state.unassignedResults.filter(r => r.key !== key);
 
-  // Build confirmed masterMap entry directly (updateAssign sets confirmed=false, so we set manually)
   const now = fmtNow();
   const name = (uEntry && uEntry.name) || key;
   state.masterMap.set(key, { name, owner, branch, source: 'manual', updatedAt: now, confirmed: true });
 
-  // Move realtor to the correct results array so the card appears in Assigned view
   if (uEntry) {
+    const f = _computeResultFields(key, uEntry);
     const base = {
-      key, name, cnt: 0, convertedCount: 0,
-      firstDate: uEntry.firstDate, penult: null, lastDate: uEntry.lastDate,
-      cw: 0, pa: 0, rat: 0, curCw: 0, curRat: 0, curPa: 0,
+      key, name,
+      cnt: f.cnt, convertedCount: f.convertedCount,
+      firstDate: f.firstDate, penult: f.penult, lastDate: f.lastDate,
+      cw: f.cw, pa: f.pa, rat: f.rat, curCw: f.curCw, curRat: f.curRat, curPa: f.curPa,
       assignedOwner: owner, assignedBranch: branch, ownerSource: 'manual', confirmed: true,
-      leadRows: [], oppRows: []
+      leadRows: f.leadRows, oppRows: f.oppRows
     };
     if (uEntry.isActive) {
-      state.activeResults.push(Object.assign({}, base, { c1: true, c2: false, c3: true, c4: false, med: 'Sin medición' }));
+      state.activeResults.push(Object.assign({}, base, { c1: f.c1, c2: f.c2, c3: f.c3, c4: f.c4, med: f.med }));
     } else {
-      state.inactiveResults.push(Object.assign({}, base, { med: 'Inactive', daysSinceLast: null }));
+      const daysSinceLast = f.lastDate ? Math.floor((f.cutoff - f.lastDate) / 86400000) : null;
+      state.inactiveResults.push(Object.assign({}, base, { med: 'Inactive', daysSinceLast }));
     }
   }
 
-  // Log: from=Unassigned, to=owner/branch
   const logEntry = { date: now, realtor: name, from: 'Unassigned', to: owner + (branch ? ' / ' + branch : '') };
   state.changeLog.unshift(logEntry);
   sbFetch('change_log', {
@@ -404,7 +485,6 @@ export function saveUnassigned(key) {
     body: JSON.stringify({ change_date: logEntry.date, realtor: logEntry.realtor, from_assignment: logEntry.from, to_assignment: logEntry.to })
   }).catch(() => {});
 
-  // Upsert to master_assignments
   sbFetch('master_assignments?on_conflict=realtor_key', {
     method: 'POST',
     prefer: 'return=minimal,resolution=merge-duplicates',
