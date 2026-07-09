@@ -230,7 +230,7 @@ export function showPipelineStageDetail(owner, stage) {
     const currentMilestone = String(getField(row, 'Current Milestone', 'current milestone') || '').trim() || '—';
     const loanStatus = String(getField(row, 'Loan Status', 'loan status') || '').trim() || '—';
     const oppCd = parseDate(getField(row, 'Created Date', 'created date', 'create date'));
-    const preApprovalDate = parseDate(getField(row, 'Pre-Approval Date', 'pre-approval date', 'Pre Approval Date', 'pre approval date'));
+    const preApprovalDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'Pre-Approval Date', 'pre-approval date'));
     const ratifiedDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
     const estClosingDate = parseDate(getField(row, 'Est. Closing Date', 'est. closing date', 'Estimated Closing Date', 'estimated closing date', 'Close Date', 'close date'));
     const amt = getField(row, 'Loan Amount', 'loan amount');
