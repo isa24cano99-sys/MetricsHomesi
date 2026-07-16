@@ -448,6 +448,8 @@ body{display:block}
 .sidebar-nav{display:flex;flex-direction:column;gap:2px;padding:10px 8px;flex:1;overflow:hidden}
 .sidebar-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-family:'Barlow',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;transition:all .15s;white-space:nowrap;overflow:hidden;width:100%;text-align:left}
 .sidebar-item i{font-size:18px;flex-shrink:0}
+.sidebar-badge{display:inline-flex;align-items:center;justify-content:center;width:28px;height:20px;border-radius:4px;background:rgba(255,255,255,0.15);color:white;font-family:'Barlow',sans-serif;font-weight:700;font-size:11px;flex-shrink:0;letter-spacing:0;text-transform:none;line-height:1}
+.sidebar-item.active .sidebar-badge{background:var(--hs-red)}
 .sidebar-item:hover{background:rgba(255,255,255,.08);color:white}
 .sidebar-item.active{background:var(--hs-red);color:white}
 .sidebar-item-label{white-space:nowrap;transition:opacity .15s}
