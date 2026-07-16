@@ -502,6 +502,9 @@ body{display:block}
 .mr-filters select{font-size:12px;padding:6px 10px;border:1.5px solid #D0DAF0;border-radius:7px;background:white;color:var(--hs-navy);font-family:'Inter',sans-serif;cursor:pointer;min-width:120px}
 .mr-card{background:white;border:1px solid #E5EAF5;border-radius:12px;margin-bottom:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,26,64,.06)}
 .mr-card-header{background:#F5F8FF;border-bottom:1px solid #E5EAF5;padding:10px 16px}
+.mr-card-topic{font-size:12px;font-weight:700;color:var(--hs-navy);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mr-chip-pipeline{display:inline-flex;align-items:center;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;cursor:default;white-space:nowrap}
+.mr-chip-nopipeline{display:inline-flex;align-items:center;background:#F1F5F9;color:#64748B;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;cursor:default;white-space:nowrap}
 .mr-card-meta{font-size:11px;color:#556080;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .mr-meta-date{font-weight:700;color:var(--hs-navy)}
 .mr-meta-time{color:#8899BB}

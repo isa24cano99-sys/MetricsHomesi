@@ -148,7 +148,8 @@ export async function uploadZoomMeetings(data, monthKey, fileName, { onProgress 
       duration_minutes: (() => { const v = getField(row, 'Duration (minutes)', 'duration (minutes)'); return v === null || v === undefined ? null : parseFloat(v) || null; })(),
       participant_name: String(getField(row, 'Name (original name)', 'name (original name)') || '').trim() || null,
       participant_email: String(getField(row, 'Email', 'email') || '').trim() || null,
-      is_guest: String(getField(row, 'Guest', 'guest') || '').trim() || null
+      is_guest: String(getField(row, 'Guest', 'guest') || '').trim() || null,
+      topic: String(getField(row, 'Topic', 'topic') || '').trim() || null
     }));
   const batchSize = 200;
   for (let i = 0; i < rows.length; i += batchSize) {

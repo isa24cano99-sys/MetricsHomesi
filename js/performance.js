@@ -315,6 +315,22 @@ function pLabel(year, months0, today, isCompare) {
   return mStr + ' ' + year + (isCurrent ? ' (thru today)' : ' (full month)');
 }
 
+function parseZoomTime(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d;
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
+  return null;
+}
+
+function fmtZoomDT(d) {
+  if (!d) return '—';
+  const h = d.getHours(), mi = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return MS_SHORT[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear() + ' · ' + (h % 12 || 12) + ':' + mi + ' ' + ampm;
+}
+
 function calcCalls(ownerName, startDate, endDate) {
   const nOwner = norm(ownerName);
   const filtered = (state.callsData || []).filter(r => {
@@ -330,21 +346,33 @@ function calcCalls(ownerName, startDate, endDate) {
 
 function calcZoom(ownerName, startDate, endDate) {
   const nOwner = norm(ownerName);
-  console.log('[calcZoom] zoomData length:', (state.zoomData || []).length, '| first 3:', (state.zoomData || []).slice(0, 3), '| searching for:', nOwner, '| host matches:', (state.zoomData || []).filter(r => norm(r.host_name || '') === nOwner).length);
+
+  // Build the set of YYYY-MM month keys that fall within [startDate, endDate]
+  const monthKeys = new Set();
+  const cursor = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 1));
+  const last   = new Date(Date.UTC(endDate.getUTCFullYear(),   endDate.getUTCMonth(),   1));
+  while (cursor <= last) {
+    const mm = String(cursor.getUTCMonth() + 1).padStart(2, '0');
+    monthKeys.add(cursor.getUTCFullYear() + '-' + mm);
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+
   const meetingMap = new Map();
   for (const r of (state.zoomData || [])) {
     if (norm(r.host_name || '') !== nOwner) continue;
-    const d = parseDate(r.start_time);
-    if (!d || d < startDate || d > endDate) continue;
-    const key = (r.meeting_id || '') + '|' + (r.start_time || '');
-    if (!meetingMap.has(key)) meetingMap.set(key, { rows: [], startTime: d, rawTime: r.start_time, duration: r.duration_minutes });
+    if (!monthKeys.has(r.month_key)) continue;
+    const d = parseZoomTime(r.start_time);
+    const key = (r.meeting_id || '') + '|' + (r.month_key || '') + '|' + (r.start_time || '');
+    if (!meetingMap.has(key)) meetingMap.set(key, { rows: [], startTime: d || null, rawTime: r.start_time, duration: r.duration_minutes });
     meetingMap.get(key).rows.push(r);
   }
+
   const meetingsWithGuest = [];
   for (const m of meetingMap.values()) {
     const guests = m.rows.filter(r => r.is_guest === 'Yes');
     if (guests.length) meetingsWithGuest.push({ ...m, guests });
   }
+
   const externalMap = new Map();
   for (const m of meetingsWithGuest) {
     for (const g of m.guests) {
@@ -357,7 +385,9 @@ function calcZoom(ownerName, startDate, endDate) {
   const meetingsDetail = meetingsWithGuest.map(m => ({
     startTime: m.startTime,
     duration: m.duration,
-    externals: [...new Map(m.guests.map(g => [norm(g.participant_name || ''), g.participant_name || ''])).values()].filter(Boolean)
+    meetingId: (m.rows[0] || {}).meeting_id || '',
+    externals: [...new Map(m.guests.map(g => [norm(g.participant_name || ''), g.participant_name || ''])).values()].filter(Boolean),
+    internalRows: m.rows.filter(r => r.is_guest !== 'Yes')
   })).sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
   return { meetingsWithExternal: meetingsWithGuest.length, uniqueExternals: externalMap.size, externalsList, meetingsDetail };
 }
@@ -477,13 +507,38 @@ function buildHFModal(isHunting, realtors, owner, label) {
   };
 }
 
+function getMeetingLOs(internalRows) {
+  const seen = new Set();
+  const names = [];
+  for (const r of (internalRows || [])) {
+    const name = (r.participant_name || '').trim();
+    if (!name || name.includes('(Host)')) continue;
+    const canonical = state.loReferenceMap.get(norm(name));
+    if (canonical && !seen.has(canonical)) { seen.add(canonical); names.push(canonical); }
+  }
+  return names.length ? names.join(', ') : '—';
+}
+
 function buildZoomMeetingsModal(meetingsDetail, owner, label) {
-  const head = '<tr><th>Date</th><th>Duration (min)</th><th>External Participants</th></tr>';
+  // Build meeting_id → topic lookup from raw zoomData
+  const topicMap = new Map();
+  for (const r of (state.zoomData || [])) {
+    if (r.meeting_id && !topicMap.has(r.meeting_id)) topicMap.set(r.meeting_id, (r.topic || '').trim() || null);
+  }
+  if (meetingsDetail.length && state.zoomData) {
+    const meetingId = meetingsDetail[0].meetingId;
+    const sampleRow = state.zoomData.find(r => r.meeting_id === meetingId);
+    console.log('[MR] sample zoom row for topic:', JSON.stringify(sampleRow));
+  }
+  const head = '<tr><th>Meeting Topic</th><th>Date &amp; Time</th><th>Duration (min)</th><th>Loan Officer</th><th>External Participants</th></tr>';
   const body = meetingsDetail.map(m => {
-    const dStr = m.startTime ? (MS_SHORT[m.startTime.getUTCMonth()] + ' ' + m.startTime.getUTCDate() + ', ' + m.startTime.getUTCFullYear()) : '—';
+    const topic = topicMap.get(m.meetingId) || '—';
+    const loStr = getMeetingLOs(m.internalRows);
     return '<tr>' +
-      '<td class="dt">' + dStr + '</td>' +
+      '<td style="font-size:11px;font-weight:600;color:var(--hs-navy);max-width:180px">' + topic + '</td>' +
+      '<td class="dt">' + fmtZoomDT(m.startTime) + '</td>' +
       '<td style="text-align:center">' + (m.duration || '—') + '</td>' +
+      '<td style="font-size:11px;font-weight:600;color:var(--hs-navy)">' + loStr + '</td>' +
       '<td style="font-size:11px">' + m.externals.join(', ') + '</td>' +
       '</tr>';
   }).join('');
@@ -492,11 +547,8 @@ function buildZoomMeetingsModal(meetingsDetail, owner, label) {
     sub: label + ' · ' + meetingsDetail.length + ' meeting' + (meetingsDetail.length !== 1 ? 's' : ''),
     head, body,
     csvData: [
-      ['Date', 'Duration (min)', 'External Participants'],
-      ...meetingsDetail.map(m => {
-        const dStr = m.startTime ? fmtDate(m.startTime) : '';
-        return [dStr, m.duration || '', m.externals.join('; ')];
-      })
+      ['Meeting Topic', 'Date & Time', 'Duration (min)', 'Loan Officer', 'External Participants'],
+      ...meetingsDetail.map(m => [topicMap.get(m.meetingId) || '—', fmtZoomDT(m.startTime), m.duration || '', getMeetingLOs(m.internalRows), m.externals.join('; ')])
     ]
   };
 }
@@ -504,11 +556,10 @@ function buildZoomMeetingsModal(meetingsDetail, owner, label) {
 function buildZoomExternalsModal(externalsList, owner, label) {
   const head = '<tr><th>Name</th><th>Email</th><th>Meeting Date</th></tr>';
   const body = externalsList.map(e => {
-    const dStr = e.meetingDate ? (MS_SHORT[e.meetingDate.getUTCMonth()] + ' ' + e.meetingDate.getUTCDate() + ', ' + e.meetingDate.getUTCFullYear()) : '—';
     return '<tr>' +
       '<td style="font-weight:600">' + (e.name || '—') + '</td>' +
       '<td style="font-size:11px;color:#667799">' + (e.email || '—') + '</td>' +
-      '<td class="dt">' + dStr + '</td>' +
+      '<td class="dt">' + fmtZoomDT(e.meetingDate) + '</td>' +
       '</tr>';
   }).join('');
   return {
@@ -517,7 +568,7 @@ function buildZoomExternalsModal(externalsList, owner, label) {
     head, body,
     csvData: [
       ['Name', 'Email', 'Meeting Date'],
-      ...externalsList.map(e => [e.name || '', e.email || '', e.meetingDate ? fmtDate(e.meetingDate) : ''])
+      ...externalsList.map(e => [e.name || '', e.email || '', fmtZoomDT(e.meetingDate)])
     ]
   };
 }

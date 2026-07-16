@@ -1,6 +1,15 @@
 import { state } from './state.js';
-import { norm, parseDate } from './utils.js';
+import { norm, getField, parseDate } from './utils.js';
 import { sbFetch } from './supabase.js';
+
+function parseZoomTime(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d;
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
+  return null;
+}
 
 /*
   Supabase table required:
@@ -58,20 +67,42 @@ export function initMeetingsReview() {
   const hostSel  = document.getElementById('mr-host');
   if (!yearSel) return;
 
-  const yearsSet = new Set();
-  const hostsSet = new Set();
+  // BD owners from the owners-list textarea — used to filter hosts
+  const allowedOwners = (document.getElementById('owners-list') || { value: '' }).value
+    .split(',').map(s => s.trim()).filter(s => s !== '');
+  const ownersNorm = new Set(allowedOwners.map(o => norm(o)));
+
+  console.log('[MR] allowed owners:', allowedOwners);
+  console.log('[MR] allowed norm set:', [...ownersNorm]);
+  console.log('[MR] unique hosts in zoomData:', [...new Set((state.zoomData || []).map(r => r.host_name))]);
+  console.log('[MR] hosts that pass filter:', [...new Set((state.zoomData || []).map(r => r.host_name))].filter(h => ownersNorm.has(norm(h?.trim() || ''))));
+
+  const MS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  const yearsSet  = new Set();
+  const monthsSet = new Set();
+  const hostsSet  = new Set();
   for (const r of (state.zoomData || [])) {
-    const d = parseDate(r.start_time);
-    if (d) yearsSet.add(d.getUTCFullYear());
-    if (r.host_name) hostsSet.add(r.host_name.trim());
+    if (r.month_key) {
+      yearsSet.add(Number(r.month_key.slice(0, 4)));
+      monthsSet.add(r.month_key.slice(5, 7));
+    }
+    if (r.host_name && ownersNorm.has(norm(r.host_name.trim()))) hostsSet.add(r.host_name.trim());
   }
 
   const prevYear = yearSel.value;
   yearSel.innerHTML = '<option value="">All Years</option>' +
     [...yearsSet].sort((a, b) => b - a).map(y => '<option value="' + y + '"' + (String(y) === prevYear ? ' selected' : '') + '>' + y + '</option>').join('');
 
+  const prevMonth = monthSel.value;
+  monthSel.innerHTML = '<option value="">All Months</option>' +
+    [...monthsSet].sort().map(mm => {
+      const label = MS_FULL[parseInt(mm, 10) - 1] || mm;
+      return '<option value="' + mm + '"' + (mm === prevMonth ? ' selected' : '') + '>' + label + '</option>';
+    }).join('');
+
   const prevHost = hostSel.value;
-  hostSel.innerHTML = '<option value="">All Hosts</option>' +
+  hostSel.innerHTML = '<option value="">All BDs</option>' +
     [...hostsSet].sort().map(h => '<option value="' + h + '"' + (h === prevHost ? ' selected' : '') + '>' + h + '</option>').join('');
 
   renderMeetingsReview();
@@ -98,22 +129,20 @@ export function renderMeetingsReview() {
   // Build per-meeting groups from zoomData
   const meetingMap = new Map();
   for (const r of (state.zoomData || [])) {
-    const d = parseDate(r.start_time);
-    if (!d) continue;
-    const rowYear  = String(d.getUTCFullYear());
-    const rowMonth = String(d.getUTCMonth() + 1).padStart(2, '0');
-    if (yearVal  && rowYear  !== yearVal)  continue;
-    if (monthVal && rowMonth !== monthVal) continue;
+    const mk = r.month_key || '';
+    if (yearVal  && mk.slice(0, 4) !== yearVal)  continue;
+    if (monthVal && mk.slice(5, 7) !== monthVal) continue;
     if (hostVal  && (r.host_name || '').trim() !== hostVal) continue;
 
-    const key = (r.meeting_id || '') + '|' + (r.start_time || '');
+    const key = (r.meeting_id || '') + '|' + mk + '|' + (r.start_time || '');
     if (!meetingMap.has(key)) {
       meetingMap.set(key, {
         meeting_id: r.meeting_id || '',
         host_name: (r.host_name || '').trim(),
         host_email: (r.host_email || '').trim(),
-        start_time: d,
+        start_time: parseZoomTime(r.start_time),
         duration: r.duration_minutes,
+        topic: (r.topic || '').trim() || null,
         rows: []
       });
     }
@@ -125,18 +154,23 @@ export function renderMeetingsReview() {
     return;
   }
 
+  // Keep only meetings that have at least one external participant (is_guest === 'Yes')
   // Sort meetings by date descending
-  const meetings = [...meetingMap.values()].sort((a, b) => (b.start_time || 0) - (a.start_time || 0));
+  const meetings = [...meetingMap.values()]
+    .filter(m => m.rows.some(r => r.is_guest === 'Yes'))
+    .sort((a, b) => (b.start_time || 0) - (a.start_time || 0));
 
   const MS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   const html = meetings.map(m => {
     const dateStr = m.start_time
-      ? MS[m.start_time.getUTCMonth()] + ' ' + m.start_time.getUTCDate() + ', ' + m.start_time.getUTCFullYear()
+      ? MS[m.start_time.getMonth()] + ' ' + m.start_time.getDate() + ', ' + m.start_time.getFullYear()
       : '—';
-    const timeStr = m.start_time
-      ? m.start_time.toISOString().substring(11, 16) + ' UTC'
-      : '';
+    const timeStr = (() => {
+      if (!m.start_time) return '';
+      const h = m.start_time.getHours(), mi = String(m.start_time.getMinutes()).padStart(2, '0');
+      return (h % 12 || 12) + ':' + mi + ' ' + (h >= 12 ? 'PM' : 'AM');
+    })();
 
     const participants = m.rows.filter(r => r.participant_name && r.participant_name.trim());
     const isGuest = p => p.is_guest === 'Yes';
@@ -176,8 +210,37 @@ export function renderMeetingsReview() {
       if (reviewed && isRealtor)  status = '<span class="mr-status-realtor">&#10003; Realtor</span>';
       if (reviewed && !isRealtor) status = '<span class="mr-status-not">&#10007; Not Realtor</span>';
 
+      // Pipeline lookup — only when confirmed as realtor
+      let pipelineChip = '';
+      if (reviewed && isRealtor) {
+        const nName = norm(name);
+        const matchingLeads = (state.leadsData || []).filter(row => {
+          const ref = String(getField(row, 'Referred By', 'referred by') || '').trim();
+          return norm(ref) === nName;
+        });
+        if (matchingLeads.length) {
+          const allTimeCount = matchingLeads.length;
+          let maxDate = null;
+          for (const row of matchingLeads) {
+            const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+            if (d && (!maxDate || d > maxDate)) maxDate = d;
+          }
+          const bdOwner = (state.masterMap.get(nName) || {}).owner || '';
+          const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const dateLabel = maxDate ? MO[maxDate.getMonth()] + ' ' + maxDate.getDate() + ', ' + maxDate.getFullYear() : '';
+          const tip = allTimeCount + ' lead' + (allTimeCount !== 1 ? 's' : '') +
+            (dateLabel ? ' · Last: ' + dateLabel : '') +
+            (bdOwner ? ' · BD: ' + bdOwner : '');
+          pipelineChip = '<span class="mr-chip-pipeline" title="' + escHtml(tip) + '">In pipeline &#10003;</span>';
+        } else {
+          pipelineChip = '<span class="mr-chip-nopipeline">Not in pipeline</span>';
+        }
+      }
+
       const mId = JSON.stringify(m.meeting_id);
-      const mDate = m.start_time ? m.start_time.toISOString().slice(0, 10) : '';
+      const mDate = m.start_time
+        ? m.start_time.getFullYear() + '-' + String(m.start_time.getMonth() + 1).padStart(2, '0') + '-' + String(m.start_time.getDate()).padStart(2, '0')
+        : '';
       const safeN = JSON.stringify(name);
       const safeE = JSON.stringify(email);
       const safeH = JSON.stringify(m.host_name);
@@ -190,12 +253,13 @@ export function renderMeetingsReview() {
 
       return '<div class="mr-participant">' +
         '<span class="mr-participant-name">' + escHtml(name) + (email ? ' <span class="mr-participant-email">' + escHtml(email) + '</span>' : '') + '</span>' +
-        '<span style="display:flex;gap:6px;align-items:center">' + status + '<span class="mr-participant-actions">' + actions + '</span></span>' +
+        '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + status + pipelineChip + '<span class="mr-participant-actions">' + actions + '</span></span>' +
         '</div>';
     };
 
     return '<div class="mr-card">' +
       '<div class="mr-card-header">' +
+        (m.topic ? '<div class="mr-card-topic">' + escHtml(m.topic) + '</div>' : '') +
         '<div class="mr-card-meta">' +
           '<span class="mr-meta-date">' + escHtml(dateStr) + '</span>' +
           (timeStr ? ' <span class="mr-meta-time">' + escHtml(timeStr) + '</span>' : '') +
