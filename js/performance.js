@@ -3,38 +3,45 @@ import { norm, parseDate, fmtDate, getField } from './utils.js';
 import { sbFetch } from './supabase.js';
 import { openModal } from './modal.js';
 
-export const kpiGoals = { loanAmount: 700000, pipelineOpps: 10 };
+export const kpiGoals = { loanAmount: 700000, pipelineOpps: 10, loanCountGoal: 2 };
 
 export async function loadKpiSettings() {
   try {
     const rows = await sbFetch('kpi_settings?select=key,value,text_value');
     for (const r of (rows || [])) {
       if (r.key === 'loan_amount_goal') kpiGoals.loanAmount = Number(r.value) || 700000;
+      if (r.key === 'loan_count_goal') kpiGoals.loanCountGoal = Number(r.value) || 2;
       if (r.key === 'pipeline_opps_goal') kpiGoals.pipelineOpps = Number(r.value) || 10;
       if (r.key === 'owners_list' && r.text_value) {
         const el = document.getElementById('owners-list');
         if (el) el.value = r.text_value;
       }
+      if (r.key === 'lo_list' && r.text_value) {
+        const el = document.getElementById('lo-list');
+        const el2 = document.getElementById('lo-list-settings');
+        if (el) el.value = r.text_value;
+        if (el2) el2.value = r.text_value;
+      }
     }
   } catch (_) { /* table may not exist yet — use defaults */ }
-  const lEl = document.getElementById('kpi-loan-goal');
-  const oEl = document.getElementById('kpi-opps-goal');
-  if (lEl) lEl.value = kpiGoals.loanAmount;
-  if (oEl) oEl.value = kpiGoals.pipelineOpps;
+  const lcgEl = document.getElementById('kpi-loan-count-goal');
+  const oEl   = document.getElementById('kpi-opps-goal');
+  if (lcgEl) lcgEl.value = kpiGoals.loanCountGoal;
+  if (oEl)   oEl.value   = kpiGoals.pipelineOpps;
 }
 
 export async function saveKpiSettings() {
-  const lEl = document.getElementById('kpi-loan-goal');
-  const oEl = document.getElementById('kpi-opps-goal');
-  if (lEl) kpiGoals.loanAmount = Math.max(0, Number(lEl.value) || 700000);
-  if (oEl) kpiGoals.pipelineOpps = Math.max(0, Number(oEl.value) || 10);
+  const lcgEl = document.getElementById('kpi-loan-count-goal');
+  const oEl   = document.getElementById('kpi-opps-goal');
+  if (lcgEl) kpiGoals.loanCountGoal = Math.max(0, Number(lcgEl.value) || 2);
+  if (oEl)   kpiGoals.pipelineOpps  = Math.max(0, Number(oEl.value)   || 10);
   try {
     await sbFetch('kpi_settings?on_conflict=key', {
       method: 'POST',
       prefer: 'return=minimal,resolution=merge-duplicates',
       headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
       body: JSON.stringify([
-        { key: 'loan_amount_goal', value: kpiGoals.loanAmount },
+        { key: 'loan_count_goal',   value: kpiGoals.loanCountGoal },
         { key: 'pipeline_opps_goal', value: kpiGoals.pipelineOpps }
       ])
     });
@@ -95,8 +102,8 @@ function getPeriodBounds(year, months0, today, isCompare) {
   return { start, end };
 }
 
-function calcLoanAmount(owner, start, end) {
-  let total = 0;
+function calcLoanClosings(owner, start, end) {
+  let count = 0, totalAmount = 0;
   for (const row of (state.oppData || [])) {
     const stage = String(getField(row, 'Stage', 'stage') || '').trim().toLowerCase();
     if (stage !== 'closed won') continue;
@@ -107,9 +114,35 @@ function calcLoanAmount(owner, start, end) {
     const lender = String(getField(row, 'Lender', 'lender') || '').trim().toLowerCase();
     if (lender.includes('city lending inc')) continue;
     const raw = String(getField(row, 'Loan Amount', 'loan amount', 'Amount', 'amount') || '').replace(/[$,]/g, '');
-    total += parseFloat(raw) || 0;
+    count++;
+    totalAmount += parseFloat(raw) || 0;
   }
-  return total;
+  return { count, totalAmount };
+}
+
+function calcClosingGoal(months0) {
+  const mults = [1, 1.25, 1.25 * 1.25, 1.25 * 1.25 * 1.25];
+  return months0.reduce((sum, m) => sum + kpiGoals.loanCountGoal * mults[Math.floor(m / 3)], 0);
+}
+
+function calcLeadsCreated(owner, start, end) {
+  const nOwner = norm(owner);
+  const rows = [];
+  const realtorSet = new Set();
+  for (const row of (state.leadsData || [])) {
+    const leadOwner = String(getField(row, 'Lead Owner', 'lead owner', 'Owner', 'owner') || '').trim();
+    if (norm(leadOwner) !== nOwner) continue;
+    const ref = String(getField(row, 'Referred By', 'referred by') || '').trim();
+    if (!ref) continue;
+    const refKey = norm(ref);
+    const me = state.masterMap.get(refKey);
+    if (!me || norm(me.owner || '') !== nOwner) continue;
+    const cd = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+    if (!cd || cd < start || cd > end) continue;
+    rows.push(row);
+    realtorSet.add(refKey);
+  }
+  return { count: rows.length, uniqueRealtors: realtorSet.size, rows };
 }
 
 function calcPipelineActivity(owner, start, end) {
@@ -297,6 +330,7 @@ function calcCalls(ownerName, startDate, endDate) {
 
 function calcZoom(ownerName, startDate, endDate) {
   const nOwner = norm(ownerName);
+  console.log('[calcZoom] zoomData length:', (state.zoomData || []).length, '| first 3:', (state.zoomData || []).slice(0, 3), '| searching for:', nOwner, '| host matches:', (state.zoomData || []).filter(r => norm(r.host_name || '') === nOwner).length);
   const meetingMap = new Map();
   for (const r of (state.zoomData || [])) {
     if (norm(r.host_name || '') !== nOwner) continue;
@@ -488,6 +522,35 @@ function buildZoomExternalsModal(externalsList, owner, label) {
   };
 }
 
+function buildLeadsModal(rows, owner, label) {
+  const enriched = rows.map(row => ({
+    realtor:     String(getField(row, 'Referred By', 'referred by') || '—').trim(),
+    leadOwner:   String(getField(row, 'Lead Owner', 'lead owner', 'Owner', 'owner') || '—').trim(),
+    createdDate: parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date')),
+    status:      String(getField(row, 'Lead Status', 'lead status') || '—').trim(),
+    converted:   getField(row, 'Converted', 'converted')
+  })).sort((a, b) => (a.createdDate || 0) - (b.createdDate || 0));
+  const head = '<tr><th>Realtor</th><th>Lead Owner</th><th>Created Date</th><th>Lead Status</th><th>Converted</th></tr>';
+  const body = enriched.map(e =>
+    '<tr>' +
+    '<td style="font-weight:600">' + e.realtor + '</td>' +
+    '<td style="font-size:11px">' + e.leadOwner + '</td>' +
+    '<td class="dt">' + fmtDate(e.createdDate) + '</td>' +
+    '<td style="font-size:11px">' + e.status + '</td>' +
+    '<td style="text-align:center">' + (e.converted ? '<span style="color:#085041;font-weight:700">Yes</span>' : '<span style="color:#8899BB">No</span>') + '</td>' +
+    '</tr>'
+  ).join('');
+  return {
+    title: owner + ' — Leads Created',
+    sub: label + ' · ' + enriched.length + ' lead' + (enriched.length !== 1 ? 's' : ''),
+    head, body,
+    csvData: [
+      ['Realtor', 'Lead Owner', 'Created Date', 'Lead Status', 'Converted'],
+      ...enriched.map(e => [e.realtor, e.leadOwner, fmtDate(e.createdDate), e.status, e.converted ? 'Yes' : 'No'])
+    ]
+  };
+}
+
 // ── Main render ─────────────────────────────────────────────────────────────
 
 export function renderPerformance() {
@@ -537,17 +600,19 @@ export function renderPerformance() {
   const mainHFBase = new Date(mainHFCutoff);
   mainHFBase.setUTCDate(mainHFBase.getUTCDate() - windowDays);
 
-  const mainLoan  = calcLoanAmount(owner, start, end);
-  const mainPipe  = calcPipelineActivity(owner, start, end);
-  const mainHF    = calcHuntingFarmingForWindow(owner, mainHFBase, mainHFCutoff);
-  const teamAvg   = calcTeamAvgHF(mainHFCutoff, mainHFBase);
-  const mainCalls = calcCalls(owner, start, end);
-  const mainZoom  = calcZoom(owner, start, end);
+  const mainClosings = calcLoanClosings(owner, start, end);
+  const mainPipe     = calcPipelineActivity(owner, start, end);
+  const mainHF       = calcHuntingFarmingForWindow(owner, mainHFBase, mainHFCutoff);
+  const teamAvg      = calcTeamAvgHF(mainHFCutoff, mainHFBase);
+  const mainCalls    = calcCalls(owner, start, end);
+  const mainZoom     = calcZoom(owner, start, end);
+  const mainLeads    = calcLeadsCreated(owner, start, end);
 
-  const cmpLoan  = hasCmp ? calcLoanAmount(owner, cmpBounds.start, cmpBounds.end) : null;
-  const cmpPipe  = hasCmp ? calcPipelineActivity(owner, cmpBounds.start, cmpBounds.end) : null;
-  const cmpCalls = hasCmp ? calcCalls(owner, cmpBounds.start, cmpBounds.end) : null;
-  const cmpZoom  = hasCmp ? calcZoom(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpClosings = hasCmp ? calcLoanClosings(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpPipe     = hasCmp ? calcPipelineActivity(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpCalls    = hasCmp ? calcCalls(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpZoom     = hasCmp ? calcZoom(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpLeads    = hasCmp ? calcLeadsCreated(owner, cmpBounds.start, cmpBounds.end) : null;
 
   // Comparison H/F window: fully-past month uses last day; current month uses same day as main cutoff
   let cmpHF = null, cmpHFCutoff = null, cmpHFBase = null, cmpHFLbl = '';
@@ -568,14 +633,15 @@ export function renderPerformance() {
     cmpHFLbl = ('VS ' + MS_SHORT[lastCmpM] + ' ' + cmpYear + ' · ' + fmtShortDate(cmpHFBase) + ' → ' + fmtShortDate(cmpHFCutoff)).toUpperCase();
   }
 
-  const loanGoal = kpiGoals.loanAmount, oppsGoal = kpiGoals.pipelineOpps;
-  const loanPct  = loanGoal > 0 ? Math.round((mainLoan / loanGoal) * 100) : 0;
-  const oppsPct  = oppsGoal > 0 ? Math.round((mainPipe.created / oppsGoal) * 100) : 0;
-  const loanCol  = loanPct >= 100 ? '#085041' : loanPct >= 70 ? '#D4A000' : '#CC3030';
-  const oppsCol  = oppsPct >= 100 ? '#085041' : oppsPct >= 70 ? '#D4A000' : '#CC3030';
-
-  const cmpLoanPct = (hasCmp && loanGoal > 0) ? Math.round((cmpLoan / loanGoal) * 100) : null;
-  const cmpOppsPct = (hasCmp && oppsGoal > 0) ? Math.round((cmpPipe.created / oppsGoal) * 100) : null;
+  const closingGoal    = calcClosingGoal(months0);
+  const closingGoalStr = closingGoal % 1 === 0 ? String(closingGoal) : closingGoal.toFixed(2);
+  const closingPct     = closingGoal > 0 ? Math.round((mainClosings.count / closingGoal) * 100) : 0;
+  const closingCol     = closingPct >= 100 ? '#085041' : closingPct >= 70 ? '#D4A000' : '#CC3030';
+  const oppsGoal       = kpiGoals.pipelineOpps;
+  const oppsPct        = oppsGoal > 0 ? Math.round((mainPipe.created / oppsGoal) * 100) : 0;
+  const oppsCol        = oppsPct >= 100 ? '#085041' : oppsPct >= 70 ? '#D4A000' : '#CC3030';
+  const cmpClosingPct  = hasCmp && closingGoal > 0 ? Math.round((cmpClosings.count / closingGoal) * 100) : null;
+  const cmpOppsPct     = hasCmp && oppsGoal > 0 ? Math.round((cmpPipe.created / oppsGoal) * 100) : null;
 
   const total = mainHF.total || 1;
   const hPct = Math.round((mainHF.hunting / total) * 100);
@@ -592,11 +658,13 @@ export function renderPerformance() {
   _perfModalCache.set('mainFarming',       buildHFModal(false, mainHF.farmingRealtors, owner, mainLbl));
   _perfModalCache.set('mainZoomMeetings',  buildZoomMeetingsModal(mainZoom.meetingsDetail, owner, mainLbl));
   _perfModalCache.set('mainZoomExternals', buildZoomExternalsModal(mainZoom.externalsList, owner, mainLbl));
+  _perfModalCache.set('mainLeads',         buildLeadsModal(mainLeads.rows, owner, mainLbl));
   if (hasCmp) {
     _perfModalCache.set('cmpLoan',          buildLoanModal(owner, cmpBounds.start, cmpBounds.end, cmpLbl));
     _perfModalCache.set('cmpPipe',          buildPipelineModal(owner, cmpBounds.start, cmpBounds.end, cmpLbl));
     _perfModalCache.set('cmpZoomMeetings',  buildZoomMeetingsModal(cmpZoom.meetingsDetail, owner, cmpLbl));
     _perfModalCache.set('cmpZoomExternals', buildZoomExternalsModal(cmpZoom.externalsList, owner, cmpLbl));
+    _perfModalCache.set('cmpLeads',         buildLeadsModal(cmpLeads.rows, owner, cmpLbl));
     if (cmpHF) {
       _perfModalCache.set('cmpHunting', buildHFModal(true,  cmpHF.huntingRealtors, owner, cmpLbl));
       _perfModalCache.set('cmpFarming', buildHFModal(false, cmpHF.farmingRealtors, owner, cmpLbl));
@@ -616,103 +684,25 @@ export function renderPerformance() {
 
     '<div class="perf-kpi-grid">' +
 
-    // ── Card 0: Activity ──
-    '<div class="perf-kpi-card">' +
-      '<div class="perf-card-tag">ACTIVITY</div>' +
-      '<div class="perf-main-section">' +
-        '<div class="perf-act-cols">' +
-          '<div class="perf-act-col">' +
-            '<div class="perf-act-col-title">CALLS</div>' +
-            '<div class="perf-act-big">' + mainCalls.totalCalls + '</div>' +
-            '<div class="perf-act-sub">total calls</div>' +
-            '<div class="perf-act-metrics">' +
-              '<div class="perf-act-metric-item">' +
-                '<div class="perf-act-metric-val">' + mainCalls.effectiveCalls + '</div>' +
-                '<div class="perf-act-metric-lbl">effective calls</div>' +
-              '</div>' +
-              '<div class="perf-act-metric-item">' +
-                '<div class="perf-rate-chip perf-rate-' + callsRateColor + '">' + mainCalls.effectivenessRate + '%</div>' +
-                '<div class="perf-act-metric-lbl">effectiveness rate</div>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="perf-act-divider"></div>' +
-          '<div class="perf-act-col">' +
-            '<div class="perf-act-col-title">MEETINGS</div>' +
-            '<button class="perf-clickable-val" data-perf-modal="mainZoomMeetings">' + mainZoom.meetingsWithExternal + '</button>' +
-            '<div class="perf-act-sub">meetings with external</div>' +
-            '<div class="perf-act-metrics">' +
-              '<div class="perf-act-metric-item">' +
-                '<button class="perf-act-metric-btn" data-perf-modal="mainZoomExternals">' + mainZoom.uniqueExternals + '</button>' +
-                '<div class="perf-act-metric-lbl">unique realtors contacted</div>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-      (hasCmp
-        ? '<div class="perf-cmp-section">' +
-            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
-            '<div class="perf-act-cols">' +
-              '<div class="perf-act-col">' +
-                '<div class="perf-act-col-title">CALLS</div>' +
-                '<div class="perf-cmp-big-val">' + cmpCalls.totalCalls + '</div>' +
-                '<div class="perf-act-sub" style="margin-bottom:6px">total calls</div>' +
-                '<div class="perf-act-metrics">' +
-                  '<div class="perf-act-metric-item">' +
-                    '<div class="perf-act-metric-val" style="font-size:18px;color:#667799">' + cmpCalls.effectiveCalls + '</div>' +
-                    '<div class="perf-act-metric-lbl">effective</div>' +
-                  '</div>' +
-                  '<div class="perf-act-metric-item">' +
-                    '<div class="perf-rate-chip perf-rate-' + cmpCallsRateColor + '" style="font-size:12px">' + cmpCalls.effectivenessRate + '%</div>' +
-                    '<div class="perf-act-metric-lbl">rate</div>' +
-                  '</div>' +
-                '</div>' +
-                '<div class="perf-change-row" style="margin-top:8px">' +
-                  '<span class="perf-change-lbl">CHANGE</span>' +
-                  dChipInt(mainCalls.totalCalls, cmpCalls.totalCalls) +
-                '</div>' +
-              '</div>' +
-              '<div class="perf-act-divider"></div>' +
-              '<div class="perf-act-col">' +
-                '<div class="perf-act-col-title">MEETINGS</div>' +
-                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpZoomMeetings">' + cmpZoom.meetingsWithExternal + '</button>' +
-                '<div class="perf-act-sub" style="margin-bottom:6px">meetings w/ external</div>' +
-                '<div class="perf-act-metrics">' +
-                  '<div class="perf-act-metric-item">' +
-                    '<button class="perf-act-metric-btn" style="font-size:18px;color:#667799" data-perf-modal="cmpZoomExternals">' + cmpZoom.uniqueExternals + '</button>' +
-                    '<div class="perf-act-metric-lbl">unique realtors</div>' +
-                  '</div>' +
-                '</div>' +
-                '<div class="perf-change-row" style="margin-top:8px">' +
-                  '<span class="perf-change-lbl">CHANGE</span>' +
-                  dChipInt(mainZoom.meetingsWithExternal, cmpZoom.meetingsWithExternal) +
-                '</div>' +
-              '</div>' +
-            '</div>' +
-          '</div>'
-        : '') +
-    '</div>' +
-
-    // ── Card 1: B2C Goal ──
+    // ── Card 1: B2C Goal Performance ──
     '<div class="perf-kpi-card">' +
       '<div class="perf-card-tag">B2C GOAL PERFORMANCE</div>' +
       '<div class="perf-main-section">' +
         '<div class="perf-two-col">' +
           '<div class="perf-col">' +
-            '<div class="perf-col-label">CUMULATIVE</div>' +
-            '<button class="perf-clickable-val" data-perf-modal="mainLoan">' + fmtMoney(mainLoan) + '</button>' +
-            '<div class="perf-card-exact">' + fmtMoneyFull(mainLoan) + '</div>' +
+            '<div class="perf-col-label">CLOSINGS</div>' +
+            '<button class="perf-clickable-val" data-perf-modal="mainLoan">' + mainClosings.count + '</button>' +
+            '<div class="perf-card-exact">Volume: ' + fmtMoney(mainClosings.totalAmount) + '</div>' +
           '</div>' +
           '<div class="perf-col perf-col-secondary">' +
             '<div class="perf-col-label">GOAL</div>' +
-            '<div class="perf-col-goal-val">' + fmtMoney(loanGoal) + '</div>' +
+            '<div class="perf-col-goal-val">' + closingGoalStr + '</div>' +
           '</div>' +
         '</div>' +
-        goalBar(loanPct) +
+        goalBar(closingPct) +
         '<div class="perf-pct-row">' +
-          '<span class="perf-big-pct" style="color:' + loanCol + '">' + loanPct + '%<span class="perf-pct-of"> of goal</span></span>' +
-          goalChip(loanPct) +
+          '<span class="perf-big-pct" style="color:' + closingCol + '">' + closingPct + '%<span class="perf-pct-of"> of goal</span></span>' +
+          goalChip(closingPct) +
         '</div>' +
       '</div>' +
       (hasCmp
@@ -720,41 +710,37 @@ export function renderPerformance() {
             '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
             '<div class="perf-two-col">' +
               '<div class="perf-col">' +
-                '<div class="perf-col-label">CUMULATIVE</div>' +
-                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpLoan">' + fmtMoney(cmpLoan) + '</button>' +
+                '<div class="perf-col-label">CLOSINGS</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpLoan">' + cmpClosings.count + '</button>' +
+                '<div class="perf-cmp-metric-sub">Vol: ' + fmtMoney(cmpClosings.totalAmount) + '</div>' +
               '</div>' +
               '<div class="perf-col perf-col-secondary">' +
                 '<div class="perf-col-label">GOAL %</div>' +
-                '<div class="perf-cmp-pct-val">' + (cmpLoanPct !== null ? cmpLoanPct + '% of goal' : '—') + '</div>' +
+                '<div class="perf-cmp-pct-val">' + (cmpClosingPct !== null ? cmpClosingPct + '% of goal' : '—') + '</div>' +
               '</div>' +
             '</div>' +
             '<div class="perf-change-row">' +
               '<span class="perf-change-lbl">CHANGE</span>' +
-              dChipMoney(mainLoan, cmpLoan) +
+              dChipInt(mainClosings.count, cmpClosings.count) +
             '</div>' +
           '</div>'
         : '') +
     '</div>' +
 
-    // ── Card 2: Pipeline Activity ──
+    // ── Card 2: Calls ──
     '<div class="perf-kpi-card">' +
-      '<div class="perf-card-tag">PIPELINE ACTIVITY</div>' +
+      '<div class="perf-card-tag">CALLS</div>' +
       '<div class="perf-main-section">' +
         '<div class="perf-two-col">' +
           '<div class="perf-col">' +
-            '<div class="perf-col-label">OPP. CREATED</div>' +
-            '<button class="perf-clickable-val" data-perf-modal="mainPipe">' + mainPipe.created + '</button>' +
-            '<div class="perf-card-exact">Still Active: <strong>' + mainPipe.stillActive + '</strong> / ' + mainPipe.created + '</div>' +
+            '<div class="perf-col-label">TOTAL CALLS</div>' +
+            '<div class="perf-act-big">' + mainCalls.totalCalls + '</div>' +
+            '<div class="perf-card-exact">Effective: ' + mainCalls.effectiveCalls + '</div>' +
           '</div>' +
           '<div class="perf-col perf-col-secondary">' +
-            '<div class="perf-col-label">GOAL</div>' +
-            '<div class="perf-col-goal-val">' + oppsGoal + '</div>' +
+            '<div class="perf-col-label">RATE</div>' +
+            '<div class="perf-rate-chip perf-rate-' + callsRateColor + '" style="font-size:18px;padding:4px 10px">' + mainCalls.effectivenessRate + '%</div>' +
           '</div>' +
-        '</div>' +
-        goalBar(oppsPct) +
-        '<div class="perf-pct-row">' +
-          '<span class="perf-big-pct" style="color:' + oppsCol + '">' + oppsPct + '%<span class="perf-pct-of"> of goal</span></span>' +
-          goalChip(oppsPct) +
         '</div>' +
       '</div>' +
       (hasCmp
@@ -762,24 +748,54 @@ export function renderPerformance() {
             '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
             '<div class="perf-two-col">' +
               '<div class="perf-col">' +
-                '<div class="perf-col-label">OPP. CREATED</div>' +
-                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpPipe">' + cmpPipe.created + '</button>' +
-                '<div class="perf-cmp-metric-sub">Active: ' + cmpPipe.stillActive + '</div>' +
+                '<div class="perf-col-label">TOTAL CALLS</div>' +
+                '<div class="perf-cmp-big-val">' + cmpCalls.totalCalls + '</div>' +
+                '<div class="perf-cmp-metric-sub">Effective: ' + cmpCalls.effectiveCalls + '</div>' +
               '</div>' +
               '<div class="perf-col perf-col-secondary">' +
-                '<div class="perf-col-label">GOAL %</div>' +
-                '<div class="perf-cmp-pct-val">' + (cmpOppsPct !== null ? cmpOppsPct + '% of goal' : '—') + '</div>' +
+                '<div class="perf-col-label">RATE</div>' +
+                '<div class="perf-rate-chip perf-rate-' + cmpCallsRateColor + '" style="font-size:13px">' + cmpCalls.effectivenessRate + '%</div>' +
               '</div>' +
             '</div>' +
             '<div class="perf-change-row">' +
               '<span class="perf-change-lbl">CHANGE</span>' +
-              dChipInt(mainPipe.created, cmpPipe.created) +
+              dChipInt(mainCalls.totalCalls, cmpCalls.totalCalls) +
             '</div>' +
           '</div>'
         : '') +
     '</div>' +
 
-    // ── Card 3: B2B Behavior ──
+    // ── Card 3: Meetings ──
+    '<div class="perf-kpi-card">' +
+      '<div class="perf-card-tag">MEETINGS</div>' +
+      '<div class="perf-main-section">' +
+        '<div class="perf-two-col">' +
+          '<div class="perf-col">' +
+            '<div class="perf-col-label">WITH EXTERNAL</div>' +
+            '<button class="perf-clickable-val" data-perf-modal="mainZoomMeetings">' + mainZoom.meetingsWithExternal + '</button>' +
+            '<div class="perf-card-exact">Unique realtors: <button class="perf-cmp-clickable" style="font-size:11px;font-weight:700;color:#334466;background:none;border:none;cursor:pointer;padding:0" data-perf-modal="mainZoomExternals">' + mainZoom.uniqueExternals + '</button></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      (hasCmp
+        ? '<div class="perf-cmp-section">' +
+            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
+            '<div class="perf-two-col">' +
+              '<div class="perf-col">' +
+                '<div class="perf-col-label">WITH EXTERNAL</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpZoomMeetings">' + cmpZoom.meetingsWithExternal + '</button>' +
+                '<div class="perf-cmp-metric-sub">Unique: <button class="perf-cmp-clickable" style="font-size:10px;color:#667799;background:none;border:none;cursor:pointer;padding:0" data-perf-modal="cmpZoomExternals">' + cmpZoom.uniqueExternals + '</button></div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="perf-change-row">' +
+              '<span class="perf-change-lbl">CHANGE</span>' +
+              dChipInt(mainZoom.meetingsWithExternal, cmpZoom.meetingsWithExternal) +
+            '</div>' +
+          '</div>'
+        : '') +
+    '</div>' +
+
+    // ── Card 4: B2B Behavior ──
     '<div class="perf-kpi-card">' +
       '<div class="perf-card-tag">B2B BEHAVIOR &mdash; HUNTING / FARMING</div>' +
       '<div class="perf-main-section">' +
@@ -822,6 +838,79 @@ export function renderPerformance() {
                 '<button class="perf-cmp-big-val perf-cmp-clickable" style="color:#085041" data-perf-modal="cmpFarming">' + cmpHF.farming + '</button>' +
                 dChipInt(mainHF.farming, cmpHF.farming) +
               '</div>' +
+            '</div>' +
+          '</div>'
+        : '') +
+    '</div>' +
+
+    // ── Card 5: Leads Created ──
+    '<div class="perf-kpi-card">' +
+      '<div class="perf-card-tag">LEADS CREATED</div>' +
+      '<div class="perf-main-section">' +
+        '<div class="perf-two-col">' +
+          '<div class="perf-col">' +
+            '<div class="perf-col-label">LEADS</div>' +
+            '<button class="perf-clickable-val" data-perf-modal="mainLeads">' + mainLeads.count + '</button>' +
+            '<div class="perf-card-exact">From ' + mainLeads.uniqueRealtors + ' unique realtor' + (mainLeads.uniqueRealtors !== 1 ? 's' : '') + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      (hasCmp
+        ? '<div class="perf-cmp-section">' +
+            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
+            '<div class="perf-two-col">' +
+              '<div class="perf-col">' +
+                '<div class="perf-col-label">LEADS</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpLeads">' + cmpLeads.count + '</button>' +
+                '<div class="perf-cmp-metric-sub">From ' + cmpLeads.uniqueRealtors + ' realtor' + (cmpLeads.uniqueRealtors !== 1 ? 's' : '') + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="perf-change-row">' +
+              '<span class="perf-change-lbl">CHANGE</span>' +
+              dChipInt(mainLeads.count, cmpLeads.count) +
+            '</div>' +
+          '</div>'
+        : '') +
+    '</div>' +
+
+    // ── Card 6: Opportunities Created ──
+    '<div class="perf-kpi-card">' +
+      '<div class="perf-card-tag">OPPORTUNITIES CREATED</div>' +
+      '<div class="perf-main-section">' +
+        '<div class="perf-two-col">' +
+          '<div class="perf-col">' +
+            '<div class="perf-col-label">OPP. CREATED</div>' +
+            '<button class="perf-clickable-val" data-perf-modal="mainPipe">' + mainPipe.created + '</button>' +
+            '<div class="perf-card-exact">Still Active: <strong>' + mainPipe.stillActive + '</strong> / ' + mainPipe.created + '</div>' +
+          '</div>' +
+          '<div class="perf-col perf-col-secondary">' +
+            '<div class="perf-col-label">GOAL</div>' +
+            '<div class="perf-col-goal-val">' + oppsGoal + '</div>' +
+          '</div>' +
+        '</div>' +
+        goalBar(oppsPct) +
+        '<div class="perf-pct-row">' +
+          '<span class="perf-big-pct" style="color:' + oppsCol + '">' + oppsPct + '%<span class="perf-pct-of"> of goal</span></span>' +
+          goalChip(oppsPct) +
+        '</div>' +
+      '</div>' +
+      (hasCmp
+        ? '<div class="perf-cmp-section">' +
+            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
+            '<div class="perf-two-col">' +
+              '<div class="perf-col">' +
+                '<div class="perf-col-label">OPP. CREATED</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpPipe">' + cmpPipe.created + '</button>' +
+                '<div class="perf-cmp-metric-sub">Active: ' + cmpPipe.stillActive + '</div>' +
+              '</div>' +
+              '<div class="perf-col perf-col-secondary">' +
+                '<div class="perf-col-label">GOAL %</div>' +
+                '<div class="perf-cmp-pct-val">' + (cmpOppsPct !== null ? cmpOppsPct + '% of goal' : '—') + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="perf-change-row">' +
+              '<span class="perf-change-lbl">CHANGE</span>' +
+              dChipInt(mainPipe.created, cmpPipe.created) +
             '</div>' +
           '</div>'
         : '') +

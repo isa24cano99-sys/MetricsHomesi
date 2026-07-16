@@ -19,6 +19,7 @@ import { renderLoAssignCards, clearLoAssignFilters, confirmLoAssign, unconfirmLo
 import { initLoPipeline, renderLoPipeline, renderLoCwSection, clearLoPipelineFilters, clearLoCwFilters } from './lo-pipeline.js';
 import { initLoTrends, renderLoTrends } from './lo-trends.js';
 import { initLoPerformance, renderLoPerformance } from './lo-performance.js';
+import { initMeetingsReview, renderMeetingsReview, clearMrFilters, markMeetingParticipant, loadMeetingReviews } from './meetings-review.js';
 
 // card-id suffix for each file type (used for progress bars and status labels)
 const TYPE_TO_CARD = {
@@ -172,13 +173,40 @@ function toggleSidebar() {
 }
 
 function showView(viewId) {
-  ['view-bd-metrics', 'view-data-upload', 'view-lo-metrics'].forEach(id => {
+  ['view-bd-metrics', 'view-data-upload', 'view-lo-metrics', 'view-meetings-review'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('hidden', id !== 'view-' + viewId);
   });
   document.querySelectorAll('.sidebar-item[data-view]').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-view') === viewId);
   });
+  if (viewId === 'meetings-review') initMeetingsReview();
+}
+
+async function saveLoList() {
+  const el = document.getElementById('lo-list-settings');
+  const el2 = document.getElementById('lo-list');
+  const val = el ? el.value : (el2 ? el2.value : '');
+  const statusEl = document.getElementById('lo-list-save-status');
+  if (statusEl) statusEl.textContent = 'Saving…';
+  try {
+    await sbFetch('kpi_settings?on_conflict=key', {
+      method: 'POST',
+      prefer: 'return=minimal,resolution=merge-duplicates',
+      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+      body: JSON.stringify([{ key: 'lo_list', text_value: val }])
+    });
+    if (statusEl) { statusEl.textContent = '✓ Saved'; setTimeout(() => { statusEl.textContent = ''; }, 3000); }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '⚠ Error: ' + e.message;
+  }
+}
+
+function syncLoList(source) {
+  const settings = document.getElementById('lo-list-settings');
+  const lo = document.getElementById('lo-list');
+  if (source === 'settings' && settings && lo) lo.value = settings.value;
+  else if (source === 'lo' && settings && lo) settings.value = lo.value;
 }
 
 async function loadLoReferenceMap() {
@@ -323,6 +351,7 @@ async function initApp() {
     await loadKpiSettings();
     try { await loadCallsData(); } catch (_) {}
     try { await loadZoomData(); } catch (_) {}
+    try { await loadMeetingReviews(); } catch (_) {}
 
     if (hasData) {
       setStatus('ok', '✅ Supabase connected — saved data available. Press Calculate to view results.');
@@ -346,7 +375,8 @@ Object.assign(window, {
   handleFile,
   renderPipeline, renderClosedWon, clearPipelineFilters, clearClosedWonFilters, showPipelineStageDetail, renderTrends,
   renderPerformance, saveKpiSettings, saveOwnersList,
-  toggleSidebar, showView,
+  toggleSidebar, showView, saveLoList, syncLoList,
+  renderMeetingsReview, clearMrFilters, markMeetingParticipant,
   // LO Metrics
   runLoCalc, renderLoTable, setLoMode, showLoTab, srtLo, onLoModeSelect,
   renderLoScorecard, refreshLoScorecard, clearLoScorecardFilters,

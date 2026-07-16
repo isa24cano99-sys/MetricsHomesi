@@ -44,6 +44,10 @@
         <span class="sidebar-badge">LO</span>
         <span class="sidebar-item-label">LO Metrics</span>
       </button>
+      <button class="sidebar-item" id="nav-meetings-review" data-view="meetings-review" onclick="showView('meetings-review')">
+        <i class="ti ti-video"></i>
+        <span class="sidebar-item-label">Meetings Review</span>
+      </button>
       <div class="sidebar-divider"></div>
       <button class="sidebar-item" id="nav-settings" onclick="openSettings()">
         <i class="ti ti-settings"></i>
@@ -465,7 +469,7 @@
           </div>
           <div class="cfg-group" style="margin-top:12px">
             <label class="lbl">Loan Officers (comma-separated)</label>
-            <textarea id="lo-list" rows="3" style="width:100%;font-size:12px;padding:8px;border:1px solid #D0D5E2;border-radius:6px;resize:vertical;font-family:inherit">Ana Milena Zegarra, Gissel Stephanie Garcia, Giancarlo Laino, Aimmee Buendia, Nathan Martinez, Rafael Jubiz, Erick Rivera, Carmen Membreno, Juseth Castro, Mariano Claudio</textarea>
+            <textarea id="lo-list" rows="3" style="width:100%;font-size:12px;padding:8px;border:1px solid #D0D5E2;border-radius:6px;resize:vertical;font-family:inherit" oninput="syncLoList('lo')">Ana Milena Zegarra, Gissel Stephanie Garcia, Giancarlo Laino, Aimmee Buendia, Nathan Martinez, Rafael Jubiz, Erick Rivera, Carmen Membreno, Juseth Castro, Mariano Claudio</textarea>
             <div class="hint">Leave empty to auto-discover all LOs from data</div>
           </div>
         </div>
@@ -687,6 +691,28 @@
 
       </div><!-- /view-lo-metrics -->
 
+      <!-- ══ VIEW: MEETINGS REVIEW ══ -->
+      <div id="view-meetings-review" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <h2>Meetings Review</h2>
+          </div>
+          <div class="card-body">
+            <div class="mr-filters">
+              <select id="mr-year" onchange="renderMeetingsReview()"></select>
+              <select id="mr-month" onchange="renderMeetingsReview()">
+                <option value="">All Months</option>
+              </select>
+              <select id="mr-host" onchange="renderMeetingsReview()">
+                <option value="">All Hosts</option>
+              </select>
+              <button class="btn-sm" onclick="clearMrFilters()">Clear Filters</button>
+            </div>
+            <div id="mr-content"></div>
+          </div>
+        </div>
+      </div><!-- /view-meetings-review -->
+
     </div><!-- /main -->
   </div><!-- /app-wrap -->
 
@@ -701,8 +727,8 @@
 
       <div class="settings-section-title">KPI Goals</div>
       <div class="cfg-group">
-        <label class="lbl">Monthly Loan Amount Goal ($)</label>
-        <input type="number" id="kpi-loan-goal" value="700000" min="0" step="10000" onchange="saveKpiSettings()">
+        <label class="lbl">Monthly Closings Goal (base)</label>
+        <input type="number" id="kpi-loan-count-goal" value="2" min="0" step="1" onchange="saveKpiSettings()">
       </div>
       <div class="cfg-group" style="margin-top:8px">
         <label class="lbl">Monthly Pipeline Opportunities Goal</label>
@@ -720,6 +746,16 @@
         <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
           <button class="btn-sm btn-primary" onclick="saveOwnersList()" style="font-size:11px;padding:5px 16px"><i class="ti ti-device-floppy"></i> Save</button>
           <span id="owners-save-status" style="font-size:11px;color:#667799"></span>
+        </div>
+      </div>
+
+      <div class="settings-section-title" style="margin-top:20px">Loan Officers</div>
+      <div class="cfg-group">
+        <label class="lbl">LO List <span style="font-weight:400;text-transform:none;font-size:10px;color:#99AABB">— one per line or comma-separated</span></label>
+        <textarea id="lo-list-settings" rows="5" style="width:100%;font-size:12px;padding:8px;border:1px solid #D0D5E2;border-radius:6px;resize:vertical;font-family:inherit" oninput="syncLoList('settings')"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+          <button class="btn-sm btn-primary" onclick="saveLoList()" style="font-size:11px;padding:5px 16px"><i class="ti ti-device-floppy"></i> Save</button>
+          <span id="lo-list-save-status" style="font-size:11px;color:#667799"></span>
         </div>
       </div>
 
