@@ -1,5 +1,5 @@
 import { SB_URL, SB_KEY } from './config.js';
-import { getField, parseDate, fmtDB } from './utils.js';
+import { getField, parseDate, fmtDB, norm } from './utils.js';
 
 export async function sbFetch(path, opts = {}) {
   const headers = {
@@ -83,6 +83,78 @@ export async function uploadToSupabase(type, data, fileName, { onProgress = () =
   await sbFetch('upload_meta?file_type=eq.' + type, { method: 'DELETE', prefer: 'return=minimal' });
   await sbFetch('upload_meta', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({ file_type: type, file_name: fileName, row_count: rows.length }) });
   onProgress(type, 95);
+}
+
+export async function uploadCalls(data, fileName, { onProgress = () => {}, onStatus = () => {} } = {}) {
+  try {
+    await sbFetch('calls?id=neq.0', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
+  } catch (e) { console.log('calls delete:', e.message); }
+  onProgress('calls', 30);
+  const rows = data.map(row => ({
+    call_date: fmtDB(parseDate(getField(row, 'Date', 'date'))),
+    assigned_to: String(getField(row, 'Assigned', 'assigned') || '').trim() || null,
+    effective: (() => { const v = getField(row, 'Effective Calls', 'effective calls'); return v === null || v === undefined ? null : parseFloat(v) || 0; })()
+  })).filter(r => r.call_date);
+  const batchSize = 200;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batchNum = Math.floor(i / batchSize) + 1;
+    onStatus('load', '⏳ Uploading calls: batch ' + batchNum + ' of ' + Math.ceil(rows.length / batchSize));
+    await sbFetch('calls', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows.slice(i, i + batchSize)) });
+    onProgress('calls', 50 + Math.round((i / rows.length) * 45));
+  }
+  await sbFetch('upload_meta?file_type=eq.calls', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
+  await sbFetch('upload_meta', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({ file_type: 'calls', file_name: fileName, row_count: rows.length }) });
+  onProgress('calls', 95);
+  return rows.length;
+}
+
+export async function uploadLoReference(data, fileName, { onProgress = () => {}, onStatus = () => {} } = {}) {
+  try {
+    await sbFetch('lo_reference?alias=not.is.null', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
+  } catch (e) { console.log('lo_reference delete:', e.message); }
+  onProgress('loref', 30);
+  const rows = data.map(row => ({
+    alias: norm(String(getField(row, 'Name (original name)', 'name (original name)') || '').trim()),
+    canonical_name: String(getField(row, 'LO', 'lo') || '').trim() || null
+  })).filter(r => r.alias);
+  if (rows.length) {
+    await sbFetch('lo_reference', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
+  }
+  onStatus('load', '⏳ Saving LO reference metadata…');
+  await sbFetch('upload_meta?file_type=eq.lo_reference', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
+  await sbFetch('upload_meta', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({ file_type: 'lo_reference', file_name: fileName, row_count: rows.length }) });
+  onProgress('loref', 95);
+  return rows.length;
+}
+
+export async function uploadZoomMeetings(data, monthKey, fileName, { onProgress = () => {}, onStatus = () => {} } = {}) {
+  try {
+    await sbFetch('zoom_meetings?month_key=eq.' + monthKey, { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
+  } catch (e) { console.log('zoom delete:', e.message); }
+  onProgress('zoom', 30);
+  const rows = data.filter(row => Object.values(row).some(v => v !== null && String(v).trim() !== ''))
+    .map(row => ({
+      month_key: monthKey,
+      meeting_id: String(getField(row, 'ID', 'id') || '').trim() || null,
+      host_name: String(getField(row, 'Host name', 'host name') || '').trim() || null,
+      host_email: String(getField(row, 'Host email', 'host email') || '').trim() || null,
+      start_time: String(getField(row, 'Start time', 'start time') || '').trim() || null,
+      duration_minutes: (() => { const v = getField(row, 'Duration (minutes)', 'duration (minutes)'); return v === null || v === undefined ? null : parseFloat(v) || null; })(),
+      participant_name: String(getField(row, 'Name (original name)', 'name (original name)') || '').trim() || null,
+      participant_email: String(getField(row, 'Email', 'email') || '').trim() || null,
+      is_guest: String(getField(row, 'Guest', 'guest') || '').trim() || null
+    }));
+  const batchSize = 200;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batchNum = Math.floor(i / batchSize) + 1;
+    onStatus('load', '⏳ Uploading zoom: batch ' + batchNum + ' of ' + Math.ceil(rows.length / batchSize));
+    await sbFetch('zoom_meetings', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows.slice(i, i + batchSize)) });
+    onProgress('zoom', 50 + Math.round((i / rows.length) * 45));
+  }
+  await sbFetch('upload_meta?file_type=eq.zoom_meetings', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
+  await sbFetch('upload_meta', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({ file_type: 'zoom_meetings', file_name: fileName, row_count: rows.length }) });
+  onProgress('zoom', 95);
+  return rows.length;
 }
 
 export async function loadDataFromSupabase({ onStatus = () => {} } = {}) {

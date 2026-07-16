@@ -1,4 +1,5 @@
 :root{--hs-navy:#001A40;--hs-red:#FF4040;--hs-gold:#F5C518;--hs-cream:#FCFCFA;--hs-navy-light:#0D2B5E;--hs-red-dark:#CC2E2E;--hs-red-light:#FFE8E8}
+html{scrollbar-gutter:stable}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',sans-serif;background:#F0F4FA;color:var(--hs-navy);font-size:13px;min-height:100vh}
 .topbar{background:var(--hs-navy);padding:14px 24px;display:flex;align-items:center;gap:12px;position:relative;overflow:hidden}
@@ -164,6 +165,7 @@ thead tr:hover th{background:var(--hs-navy) !important;}
 .log-date{color:#8899BB;white-space:nowrap;min-width:120px}
 .empty-state{text-align:center;padding:2.5rem;color:#8899BB;font-size:12px}
 .hidden{display:none !important}
+#results.hidden,#lo-results.hidden{display:block !important;visibility:hidden;height:0;overflow:hidden;pointer-events:none;margin:0;padding:0}
 @media(max-width:640px){.upload-grid{grid-template-columns:1fr}.mode-bar{grid-template-columns:1fr}.cfg-grid{grid-template-columns:1fr}.assign-cards{grid-template-columns:1fr}}
 
 .modal-overlay{position:fixed;inset:0;background:rgba(0,26,64,0.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px}
@@ -425,3 +427,51 @@ thead tr:hover th{background:var(--hs-navy) !important;}
 .ua-sf-filter{font-size:11px;padding:6px 10px;border:1.5px solid #D0DAF0;border-radius:8px;background:white;color:var(--hs-navy);outline:none;cursor:pointer}
 .ua-sf-filter:focus{border-color:var(--hs-red)}
 .ua-count{font-size:11px;color:#8899BB;margin-left:auto;white-space:nowrap}
+
+/* ── Sidebar Navigation ───────────────────────────────────────────────────── */
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:200px;background:#0D1117;display:flex;flex-direction:column;z-index:200;transition:width .2s ease;overflow:hidden}
+.sidebar.collapsed{width:56px}
+.app-wrap{margin-left:200px;min-height:100vh;display:flex;flex-direction:column;transition:margin-left .2s ease}
+.app-wrap.sidebar-collapsed{margin-left:56px}
+body{display:block}
+.main{max-width:1280px;padding:20px;width:100%;margin:0 auto}
+.sidebar-header{display:flex;align-items:center;justify-content:flex-end;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0}
+.sidebar.collapsed .sidebar-header{justify-content:center;padding:12px}
+.sidebar-toggle{background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-size:18px;padding:5px;border-radius:6px;display:flex;align-items:center;justify-content:center;line-height:1;transition:all .15s;flex-shrink:0}
+.sidebar-toggle:hover{color:white;background:rgba(255,255,255,.1)}
+.sidebar-brand{display:flex;align-items:center;gap:10px;padding:12px 16px 10px;flex-shrink:0;overflow:hidden;white-space:nowrap}
+.sidebar-brand-icon{width:28px;height:28px;background:var(--hs-red);border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sidebar-brand-text{font-family:'Barlow',sans-serif;font-weight:700;font-size:16px;color:white;white-space:nowrap;transition:opacity .15s,width .15s}
+.sidebar-brand-text span{color:var(--hs-red)}
+.sidebar.collapsed .sidebar-brand-text{opacity:0;width:0;overflow:hidden}
+.sidebar.collapsed .sidebar-brand{justify-content:center}
+.sidebar-nav{display:flex;flex-direction:column;gap:2px;padding:10px 8px;flex:1;overflow:hidden}
+.sidebar-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-family:'Barlow',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;transition:all .15s;white-space:nowrap;overflow:hidden;width:100%;text-align:left}
+.sidebar-item i{font-size:18px;flex-shrink:0}
+.sidebar-item:hover{background:rgba(255,255,255,.08);color:white}
+.sidebar-item.active{background:var(--hs-red);color:white}
+.sidebar-item-label{white-space:nowrap;transition:opacity .15s}
+.sidebar.collapsed .sidebar-item-label{opacity:0;width:0;overflow:hidden}
+.sidebar.collapsed .sidebar-item{justify-content:center;gap:0;padding:10px}
+.sidebar-divider{height:1px;background:rgba(255,255,255,.06);margin:6px 8px}
+.sidebar-section-lbl{font-family:'Barlow',sans-serif;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:rgba(255,255,255,.25);padding:12px 12px 4px;white-space:nowrap;transition:opacity .15s}
+.sidebar.collapsed .sidebar-section-lbl{opacity:0;height:0;padding:0;overflow:hidden}
+
+/* ── Data Upload View ─────────────────────────────────────────────────────── */
+.view-header{margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #E8EDF5}
+.view-title{font-family:'Barlow',sans-serif;font-size:22px;font-weight:700;color:var(--hs-navy);text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:10px}
+.view-subtitle{font-size:12px;color:#8899BB;margin-top:6px}
+.upload-cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.uz-desc{font-size:9px;color:#AABBCC;display:block;margin-top:2px}
+.uz-zoom-selectors{display:flex;gap:8px;margin:12px 0 4px;justify-content:center}
+.uz-zoom-selectors select{flex:1;font-size:11px;padding:5px 8px;border:1.5px solid #D0DAF0;border-radius:7px;background:white;color:var(--hs-navy);font-family:'Inter',sans-serif;cursor:pointer;max-width:130px}
+
+/* ── LO Metrics placeholder ───────────────────────────────────────────────── */
+.lo-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;gap:16px;color:#AABBCC;text-align:center}
+.lo-placeholder-icon{font-size:52px;opacity:.35}
+.lo-placeholder-title{font-family:'Barlow',sans-serif;font-size:18px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#8899BB}
+.lo-placeholder-sub{font-size:12px;max-width:300px;line-height:1.6}
+.lo-tab{flex:1;padding:8px 8px;font-family:'Barlow',sans-serif;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.4px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.45);border-radius:7px;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:5px}
+.lo-tab.active{background:var(--hs-red);color:white}
+.lo-tab:hover:not(.active){background:rgba(255,255,255,0.1);color:white}
+.lo-tab.active .tab-badge{background:rgba(255,255,255,0.3)}

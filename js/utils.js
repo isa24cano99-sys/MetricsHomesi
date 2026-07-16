@@ -1,3 +1,5 @@
+import { state } from './state.js';
+
 export function parseDate(v) {
   if (!v) return null;
   if (typeof v === 'number') return new Date(Date.UTC(1899, 11, 30) + v * 86400000);
@@ -37,4 +39,13 @@ export function getField(row, ...names) {
 
 export function initials(name) {
   return name.split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
+}
+
+export function normalizeLO(name) {
+  const n = norm(name);
+  if (state.loReferenceMap) {
+    const match = state.loReferenceMap.get(n);
+    if (match) return match;
+  }
+  return n;
 }

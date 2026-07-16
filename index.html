@@ -14,285 +14,683 @@
 
 <body>
 
-  <div class="topbar">
-    <div class="logo-mark">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-        <path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" />
-      </svg>
+  <!-- ═══════════════ SIDEBAR ═══════════════ -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+        <i class="ti ti-menu-2"></i>
+      </button>
     </div>
-    <span class="logo-text">HOME<span>SÍ</span></span>
-    <span style="font-size:12px;color:rgba(255,255,255,0.3);margin-left:2px;font-family:'Barlow',sans-serif">Realtors
-      Dashboard</span>
-    <span class="topbar-sub">Powered by Supreme Lending</span>
-    <button class="settings-btn" onclick="openSettings()"><i class="ti ti-settings"></i> Settings</button>
-    <div class="stripe"></div>
-  </div>
-
-  <div class="main">
-
-    <div id="status-bar" class="status-bar sb-load">
-      <i class="ti ti-database"></i>
-      <span id="status-text">Connecting to Supabase...</span>
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+          <path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" />
+        </svg>
+      </div>
+      <span class="sidebar-brand-text">HOME<span>SÍ</span></span>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <i class="ti ti-adjustments-horizontal" style="color:var(--hs-red);font-size:17px"></i>
-        <span class="card-title">Calculation Parameters</span>
+    <div class="sidebar-nav">
+      <button class="sidebar-item" id="nav-upload" data-view="data-upload" onclick="showView('data-upload')">
+        <i class="ti ti-upload"></i>
+        <span class="sidebar-item-label">Data Upload</span>
+      </button>
+      <div class="sidebar-divider"></div>
+      <button class="sidebar-item active" id="nav-bd" data-view="bd-metrics" onclick="showView('bd-metrics')">
+        <i class="ti ti-chart-bar"></i>
+        <span class="sidebar-item-label">BD Metrics</span>
+      </button>
+      <button class="sidebar-item" id="nav-lo" data-view="lo-metrics" onclick="showView('lo-metrics')">
+        <i class="ti ti-building-bank"></i>
+        <span class="sidebar-item-label">LO Metrics</span>
+      </button>
+      <div class="sidebar-divider"></div>
+      <button class="sidebar-item" id="nav-settings" onclick="openSettings()">
+        <i class="ti ti-settings"></i>
+        <span class="sidebar-item-label">Settings</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ═══════════════ APP WRAP ═══════════════ -->
+  <div class="app-wrap" id="app-wrap">
+
+    <div class="topbar">
+      <div class="logo-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+          <path d="M3 12l9-9 9 9M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9" />
+        </svg>
       </div>
-      <div class="cfg-grid">
-        <div class="cfg-group">
-          <label class="lbl">Cutoff Date</label>
-          <input type="date" id="cutoff-date">
-        </div>
-        <div class="cfg-group">
-          <label class="lbl">Search</label>
-          <select id="mode-selector" onchange="onModeSelect(this.value)" style="font-weight:600">
-            <option value="active">✅ Active realtors</option>
-            <option value="inactive">⏸ Inactive realtors</option>
-          </select>
-          <div class="hint">Select which group to analyze</div>
-        </div>
-        <div class="cfg-group active-g" id="cfg-active-window">
-          <label class="lbl">✅ Active Window (days)</label>
-          <input type="number" id="window-days" value="60" min="1">
-          <div class="hint">Active = leads in the last N days from cutoff</div>
-        </div>
-        <div class="cfg-group inactive-g" id="cfg-inactive-from" style="opacity:.4;pointer-events:none">
-          <label class="lbl">⏸ Inactive: search from</label>
-          <input type="date" id="inactive-from">
-          <div class="hint">Only inactive realtors with at least 1 lead since this date</div>
-        </div>
-        <div class="cfg-group inactive-g" id="cfg-react-days">
-          <label class="lbl">⏸ Reactivation threshold C4 (days)</label>
-          <input type="number" id="react-days" value="150" min="1">
-          <div class="hint">2nd to last lead before cutoff - N days</div>
-        </div>
-      </div>
+      <span class="logo-text">HOME<span>SÍ</span></span>
+      <span style="font-size:12px;color:rgba(255,255,255,0.3);margin-left:2px;font-family:'Barlow',sans-serif">Realtors Dashboard</span>
+      <span class="topbar-sub">Powered by Supreme Lending</span>
+      <div class="stripe"></div>
     </div>
 
-    <button class="run-btn" id="run-btn" onclick="runCalc()" disabled>
-      <i class="ti ti-player-play"></i> Calculate Metrics
-    </button>
+    <div class="main">
 
-    <div id="results" class="hidden">
-      <div class="mcards" id="summary-cards"></div>
-
-      <div class="tabs">
-        <button class="tab active" onclick="showTab('med')"><i class="ti ti-chart-bar"></i> Ratings</button>
-        <button class="tab" onclick="showTab('sc')"><i class="ti ti-trophy"></i> Scorecard</button>
-        <button class="tab" onclick="showTab('trends')"><i class="ti ti-chart-line"></i> Trends</button>
-        <button class="tab" onclick="showTab('perf')"><i class="ti ti-chart-arrows-vertical"></i> Performance</button>
-        <button class="tab" onclick="showTab('pipeline')"><i class="ti ti-git-branch"></i> Pipeline</button>
-        <button class="tab" onclick="showTab('assign')"><i class="ti ti-checkbox"></i> Realtors <span class="tab-badge"
-            id="pending-badge">0</span></button>
+      <div id="status-bar" class="status-bar sb-load">
+        <i class="ti ti-database"></i>
+        <span id="status-text">Connecting to Supabase...</span>
       </div>
 
-      <!-- MEDICIONES -->
-      <div id="tab-med">
-        <div class="filters">
-          <select id="filter-med" multiple size="4" onchange="renderTable()">
-            <option value="">All Ratings</option>
-          </select>
-          <select id="filter-own" multiple size="4" onchange="renderTable()">
-            <option value="">All Owners</option>
-          </select>
-          <select id="filter-branch" multiple size="4" onchange="renderTable()">
-            <option value="">All Branches</option>
-          </select>
-          <button class="btn-sm" onclick="exportCSV()"><i class="ti ti-download"></i> CSV</button>
-        </div>
-        <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
-        <div class="twrap">
-          <table>
-            <thead id="table-head"></thead>
-            <tbody id="table-body"></tbody>
-          </table>
-        </div>
-      </div>
+      <!-- ══ VIEW: BD METRICS ══ -->
+      <div id="view-bd-metrics">
 
-      <!-- SCORECARD -->
-      <div id="tab-sc" class="hidden">
-        <div class="filters" style="margin-bottom:16px;align-items:flex-end">
-          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
-            <label class="lbl">Filter by Rating</label>
-            <select id="sc-filter-med" multiple size="4" onchange="refreshScorecard()"></select>
+        <div class="card">
+          <div class="card-header">
+            <i class="ti ti-adjustments-horizontal" style="color:var(--hs-red);font-size:17px"></i>
+            <span class="card-title">Calculation Parameters</span>
           </div>
-          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
-            <label class="lbl">Filter by Owner</label>
-            <select id="sc-filter-own" multiple size="4" onchange="refreshScorecard()"></select>
-          </div>
-          <button class="btn-sm" onclick="clearScorecardFilters()"><i class="ti ti-x"></i> Clear Filters</button>
-        </div>
-        <div class="sc-grid" id="scorecard-grid"></div>
-        <div id="rankings-section" class="hidden">
-          <div class="rankings-cols">
-            <div id="ranking-hunting"></div>
-            <div id="ranking-farming"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ASIGNACIONES -->
-      <div id="tab-assign" class="hidden">
-        <div class="assign-subnav">
-          <button class="assign-subnav-btn active" id="assign-tab-assigned" onclick="showAssignView('assigned')">
-            <i class="ti ti-checkbox"></i> Assigned
-          </button>
-          <button class="assign-subnav-btn" id="assign-tab-unassigned" onclick="showAssignView('unassigned')">
-            <i class="ti ti-alert-circle"></i> Unassigned
-            <span class="assign-unassigned-badge" id="unassigned-count-badge">0</span>
-          </button>
-        </div>
-
-        <div id="assign-view-assigned">
-          <div class="assign-stats" id="assign-stats"></div>
-          <div class="assign-toolbar">
-            <input class="assign-search" id="assign-search" placeholder="Search realtor..." oninput="renderAssignCards()">
-            <button class="btn-sm btn-primary" onclick="saveAllAssignments()"><i class="ti ti-device-floppy"></i> Save All</button>
-            <button class="btn-sm" onclick="exportMasterCSV()"><i class="ti ti-download"></i> CSV</button>
-            <span id="assign-save-status" class="save-status"></span>
-          </div>
-          <div class="filters">
-            <select id="assign-filter-owner" multiple size="3" onchange="renderAssignCards()"></select>
-            <select id="assign-filter-branch" multiple size="3" onchange="renderAssignCards()"></select>
-            <select id="assign-filter-med" multiple size="3" onchange="renderAssignCards()"></select>
-            <select id="assign-filter-status" onchange="renderAssignCards()">
-              <option value="">All</option>
-              <option value="active">Active Only</option>
-              <option value="inactive">Inactive Only</option>
-              <option value="confirmed">Confirmed Only</option>
-              <option value="pending">Pending Only</option>
-              <option value="unassigned">No Owner</option>
-            </select>
-            <button class="btn-sm" id="btn-clear-assign-filters" onclick="clearAssignFilters()"><i class="ti ti-rotate"></i> Clear Filters</button>
-          </div>
-          <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
-          <div class="assign-cards" id="assign-cards"></div>
-        </div>
-
-        <div id="assign-view-unassigned" class="hidden">
-          <div id="unassigned-content"></div>
-        </div>
-      </div>
-
-      <!-- PERFORMANCE -->
-      <div id="tab-perf" class="hidden">
-        <div class="perf-filters-wrap">
-          <div class="perf-filter-group">
-            <label class="lbl">Business Developer</label>
-            <select id="perf-owner" onchange="renderPerformance()">
-              <option value="">&#8212; Select BD &#8212;</option>
-            </select>
-          </div>
-          <div class="perf-filter-group">
-            <label class="lbl">Period</label>
-            <div class="perf-period-row">
-              <select id="perf-year" onchange="renderPerformance()" class="perf-year-sel"></select>
-              <select id="perf-months" multiple size="5" onchange="renderPerformance()"></select>
+          <div class="cfg-grid">
+            <div class="cfg-group">
+              <label class="lbl">Cutoff Date</label>
+              <input type="date" id="cutoff-date">
             </div>
-          </div>
-          <div class="perf-filter-group">
-            <label class="lbl">Compare to</label>
-            <div class="perf-period-row">
-              <select id="perf-cmp-year" onchange="renderPerformance()" class="perf-year-sel"></select>
-              <select id="perf-cmp-months" multiple size="5" onchange="renderPerformance()"></select>
+            <div class="cfg-group">
+              <label class="lbl">Search</label>
+              <select id="mode-selector" onchange="onModeSelect(this.value)" style="font-weight:600">
+                <option value="active">✅ Active realtors</option>
+                <option value="inactive">⏸ Inactive realtors</option>
+              </select>
+              <div class="hint">Select which group to analyze</div>
+            </div>
+            <div class="cfg-group active-g" id="cfg-active-window">
+              <label class="lbl">✅ Active Window (days)</label>
+              <input type="number" id="window-days" value="60" min="1">
+              <div class="hint">Active = leads in the last N days from cutoff</div>
+            </div>
+            <div class="cfg-group inactive-g" id="cfg-inactive-from" style="opacity:.4;pointer-events:none">
+              <label class="lbl">⏸ Inactive: search from</label>
+              <input type="date" id="inactive-from">
+              <div class="hint">Only inactive realtors with at least 1 lead since this date</div>
+            </div>
+            <div class="cfg-group inactive-g" id="cfg-react-days">
+              <label class="lbl">⏸ Reactivation threshold C4 (days)</label>
+              <input type="number" id="react-days" value="150" min="1">
+              <div class="hint">2nd to last lead before cutoff - N days</div>
             </div>
           </div>
         </div>
-        <div class="filter-hint">Ctrl+click to select multiple months &middot; comparison cuts at same week-of-month as today for fair comparison</div>
-        <div id="perf-content" style="margin-top:18px"></div>
-      </div>
 
-      <!-- PIPELINE -->
-      <div id="tab-pipeline" class="hidden">
-        <div class="pl-section-header">
-          <i class="ti ti-git-branch" style="font-size:16px;color:var(--hs-red)"></i>
-          <span class="pl-section-title">Open Pipeline</span>
-        </div>
-        <div class="filters" style="margin-bottom:12px;align-items:flex-end">
-          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
-            <label class="lbl">Filter by Owner</label>
-            <select id="pl-filter-owner" multiple size="4" onchange="renderPipeline()"></select>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:4px;min-width:170px">
-            <label class="lbl">Active if lead since</label>
-            <input type="date" id="pl-inactive-cutoff" onchange="renderPipeline()">
-            <div class="hint">Realtor is active if they shared a lead on or after this date</div>
-          </div>
-          <button class="btn-sm" onclick="clearPipelineFilters()"><i class="ti ti-x"></i> Clear Filters</button>
-        </div>
-        <div class="filter-hint">Ctrl+click to select multiple &middot; click a stage chip to view detail</div>
-        <div id="pl-pipeline-content" style="margin-top:14px"></div>
+        <button class="run-btn" id="run-btn" onclick="runCalc()" disabled>
+          <i class="ti ti-player-play"></i> Calculate Metrics
+        </button>
 
-        <div class="pl-section-header" style="margin-top:32px">
-          <i class="ti ti-circle-check" style="font-size:16px;color:#085041"></i>
-          <span class="pl-section-title">Closed Won</span>
-        </div>
-        <div class="filters" style="margin-bottom:12px;align-items:flex-end">
-          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
-            <label class="lbl">Year</label>
-            <select id="pl-cw-year" multiple size="3" onchange="renderClosedWon()"></select>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
-            <label class="lbl">Month</label>
-            <select id="pl-cw-month" multiple size="3" onchange="renderClosedWon()"></select>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px">
-            <label class="lbl">Branch</label>
-            <select id="pl-filter-cw-branch" multiple size="3" onchange="renderClosedWon()"></select>
-          </div>
-          <div style="display:flex;align-items:flex-end;padding-bottom:2px">
-            <button class="btn-sm" onclick="clearClosedWonFilters()"><i class="ti ti-x"></i> Clear Filters</button>
-          </div>
-        </div>
-        <div class="filter-hint">Ctrl+click to select multiple</div>
-        <div id="pl-cw-content" style="margin-top:14px"></div>
-      </div>
+        <div id="results" class="hidden">
+          <div class="mcards" id="summary-cards"></div>
 
-      <!-- TRENDS -->
-      <div id="tab-trends" class="hidden">
-        <div class="trends-header">
-          <div class="trends-title">Realtor Retention &amp; Business Developer Evolution</div>
-          <div class="trends-subtitle">Hunting = new realtors acquired in the period &nbsp;&middot;&nbsp; Farming = existing relationships that remained active</div>
-        </div>
-
-        <div class="trends-windows">
-          <div class="trends-window-row">
-            <span class="trends-window-label">Current Window</span>
-            <span class="trends-window-range" id="trends-cur-label">Run calculation to load</span>
-            <span class="trends-window-note">(derived from Metrics parameters &mdash; read only)</span>
+          <div class="tabs">
+            <button class="tab active" onclick="showTab('med')"><i class="ti ti-chart-bar"></i> Ratings</button>
+            <button class="tab" onclick="showTab('sc')"><i class="ti ti-trophy"></i> Scorecard</button>
+            <button class="tab" onclick="showTab('trends')"><i class="ti ti-chart-line"></i> Trends</button>
+            <button class="tab" onclick="showTab('perf')"><i class="ti ti-chart-arrows-vertical"></i> Performance</button>
+            <button class="tab" onclick="showTab('pipeline')"><i class="ti ti-git-branch"></i> Pipeline</button>
+            <button class="tab" onclick="showTab('assign')"><i class="ti ti-checkbox"></i> Realtors <span class="tab-badge" id="pending-badge">0</span></button>
           </div>
-          <div class="trends-window-row">
-            <span class="trends-window-label">Comparison 1</span>
-            <div class="trends-date-pair">
-              <label class="trends-date-lbl">From</label>
-              <input type="date" id="trends-c1-floor" onchange="renderTrends()">
-              <label class="trends-date-lbl">to</label>
-              <input type="date" id="trends-c1-cutoff" onchange="renderTrends()">
+
+          <!-- MEDICIONES -->
+          <div id="tab-med">
+            <div class="filters">
+              <select id="filter-med" multiple size="4" onchange="renderTable()">
+                <option value="">All Ratings</option>
+              </select>
+              <select id="filter-own" multiple size="4" onchange="renderTable()">
+                <option value="">All Owners</option>
+              </select>
+              <select id="filter-branch" multiple size="4" onchange="renderTable()">
+                <option value="">All Branches</option>
+              </select>
+              <button class="btn-sm" onclick="exportCSV()"><i class="ti ti-download"></i> CSV</button>
             </div>
-            <span class="trends-window-range" id="trends-c1-label">—</span>
-          </div>
-          <div class="trends-window-row">
-            <span class="trends-window-label">Comparison 2</span>
-            <div class="trends-date-pair">
-              <label class="trends-date-lbl">From</label>
-              <input type="date" id="trends-c2-floor" onchange="renderTrends()">
-              <label class="trends-date-lbl">to</label>
-              <input type="date" id="trends-c2-cutoff" onchange="renderTrends()">
+            <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
+            <div class="twrap">
+              <table>
+                <thead id="table-head"></thead>
+                <tbody id="table-body"></tbody>
+              </table>
             </div>
-            <span class="trends-window-range" id="trends-c2-label">—</span>
+          </div>
+
+          <!-- SCORECARD -->
+          <div id="tab-sc" class="hidden">
+            <div class="filters" style="margin-bottom:16px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+                <label class="lbl">Filter by Rating</label>
+                <select id="sc-filter-med" multiple size="4" onchange="refreshScorecard()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+                <label class="lbl">Filter by Owner</label>
+                <select id="sc-filter-own" multiple size="4" onchange="refreshScorecard()"></select>
+              </div>
+              <button class="btn-sm" onclick="clearScorecardFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+            </div>
+            <div class="sc-grid" id="scorecard-grid"></div>
+            <div id="rankings-section" class="hidden">
+              <div class="rankings-cols">
+                <div id="ranking-hunting"></div>
+                <div id="ranking-farming"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ASIGNACIONES -->
+          <div id="tab-assign" class="hidden">
+            <div class="assign-subnav">
+              <button class="assign-subnav-btn active" id="assign-tab-assigned" onclick="showAssignView('assigned')">
+                <i class="ti ti-checkbox"></i> Assigned
+              </button>
+              <button class="assign-subnav-btn" id="assign-tab-unassigned" onclick="showAssignView('unassigned')">
+                <i class="ti ti-alert-circle"></i> Unassigned
+                <span class="assign-unassigned-badge" id="unassigned-count-badge">0</span>
+              </button>
+            </div>
+
+            <div id="assign-view-assigned">
+              <div class="assign-stats" id="assign-stats"></div>
+              <div class="assign-toolbar">
+                <input class="assign-search" id="assign-search" placeholder="Search realtor..." oninput="renderAssignCards()">
+                <button class="btn-sm btn-primary" onclick="saveAllAssignments()"><i class="ti ti-device-floppy"></i> Save All</button>
+                <button class="btn-sm" onclick="exportMasterCSV()"><i class="ti ti-download"></i> CSV</button>
+                <span id="assign-save-status" class="save-status"></span>
+              </div>
+              <div class="filters">
+                <select id="assign-filter-owner" multiple size="3" onchange="renderAssignCards()"></select>
+                <select id="assign-filter-branch" multiple size="3" onchange="renderAssignCards()"></select>
+                <select id="assign-filter-med" multiple size="3" onchange="renderAssignCards()"></select>
+                <select id="assign-filter-status" onchange="renderAssignCards()">
+                  <option value="">All</option>
+                  <option value="active">Active Only</option>
+                  <option value="inactive">Inactive Only</option>
+                  <option value="confirmed">Confirmed Only</option>
+                  <option value="pending">Pending Only</option>
+                  <option value="unassigned">No Owner</option>
+                </select>
+                <button class="btn-sm" id="btn-clear-assign-filters" onclick="clearAssignFilters()"><i class="ti ti-rotate"></i> Clear Filters</button>
+              </div>
+              <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
+              <div class="assign-cards" id="assign-cards"></div>
+            </div>
+
+            <div id="assign-view-unassigned" class="hidden">
+              <div id="unassigned-content"></div>
+            </div>
+          </div>
+
+          <!-- PERFORMANCE -->
+          <div id="tab-perf" class="hidden">
+            <div class="perf-filters-wrap">
+              <div class="perf-filter-group">
+                <label class="lbl">Business Developer</label>
+                <select id="perf-owner" onchange="renderPerformance()">
+                  <option value="">&#8212; Select BD &#8212;</option>
+                </select>
+              </div>
+              <div class="perf-filter-group">
+                <label class="lbl">Period</label>
+                <div class="perf-period-row">
+                  <select id="perf-year" onchange="renderPerformance()" class="perf-year-sel"></select>
+                  <select id="perf-months" multiple size="5" onchange="renderPerformance()"></select>
+                </div>
+              </div>
+              <div class="perf-filter-group">
+                <label class="lbl">Compare to</label>
+                <div class="perf-period-row">
+                  <select id="perf-cmp-year" onchange="renderPerformance()" class="perf-year-sel"></select>
+                  <select id="perf-cmp-months" multiple size="5" onchange="renderPerformance()"></select>
+                </div>
+              </div>
+            </div>
+            <div class="filter-hint">Ctrl+click to select multiple months &middot; comparison cuts at same week-of-month as today for fair comparison</div>
+            <div id="perf-content" style="margin-top:18px"></div>
+          </div>
+
+          <!-- PIPELINE -->
+          <div id="tab-pipeline" class="hidden">
+            <div class="pl-section-header">
+              <i class="ti ti-git-branch" style="font-size:16px;color:var(--hs-red)"></i>
+              <span class="pl-section-title">Open Pipeline</span>
+            </div>
+            <div class="filters" style="margin-bottom:12px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+                <label class="lbl">Filter by Owner</label>
+                <select id="pl-filter-owner" multiple size="4" onchange="renderPipeline()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;min-width:170px">
+                <label class="lbl">Active if lead since</label>
+                <input type="date" id="pl-inactive-cutoff" onchange="renderPipeline()">
+                <div class="hint">Realtor is active if they shared a lead on or after this date</div>
+              </div>
+              <button class="btn-sm" onclick="clearPipelineFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+            </div>
+            <div class="filter-hint">Ctrl+click to select multiple &middot; click a stage chip to view detail</div>
+            <div id="pl-pipeline-content" style="margin-top:14px"></div>
+
+            <div class="pl-section-header" style="margin-top:32px">
+              <i class="ti ti-circle-check" style="font-size:16px;color:#085041"></i>
+              <span class="pl-section-title">Closed Won</span>
+            </div>
+            <div class="filters" style="margin-bottom:12px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
+                <label class="lbl">Year</label>
+                <select id="pl-cw-year" multiple size="3" onchange="renderClosedWon()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
+                <label class="lbl">Month</label>
+                <select id="pl-cw-month" multiple size="3" onchange="renderClosedWon()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px">
+                <label class="lbl">Branch</label>
+                <select id="pl-filter-cw-branch" multiple size="3" onchange="renderClosedWon()"></select>
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+                <button class="btn-sm" onclick="clearClosedWonFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+              </div>
+            </div>
+            <div class="filter-hint">Ctrl+click to select multiple</div>
+            <div id="pl-cw-content" style="margin-top:14px"></div>
+          </div>
+
+          <!-- TRENDS -->
+          <div id="tab-trends" class="hidden">
+            <div class="trends-header">
+              <div class="trends-title">Realtor Retention &amp; Business Developer Evolution</div>
+              <div class="trends-subtitle">Hunting = new realtors acquired in the period &nbsp;&middot;&nbsp; Farming = existing relationships that remained active</div>
+            </div>
+
+            <div class="trends-windows">
+              <div class="trends-window-row">
+                <span class="trends-window-label">Current Window</span>
+                <span class="trends-window-range" id="trends-cur-label">Run calculation to load</span>
+                <span class="trends-window-note">(derived from Metrics parameters &mdash; read only)</span>
+              </div>
+              <div class="trends-window-row">
+                <span class="trends-window-label">Comparison 1</span>
+                <div class="trends-date-pair">
+                  <label class="trends-date-lbl">From</label>
+                  <input type="date" id="trends-c1-floor" onchange="renderTrends()">
+                  <label class="trends-date-lbl">to</label>
+                  <input type="date" id="trends-c1-cutoff" onchange="renderTrends()">
+                </div>
+                <span class="trends-window-range" id="trends-c1-label">—</span>
+              </div>
+              <div class="trends-window-row">
+                <span class="trends-window-label">Comparison 2</span>
+                <div class="trends-date-pair">
+                  <label class="trends-date-lbl">From</label>
+                  <input type="date" id="trends-c2-floor" onchange="renderTrends()">
+                  <label class="trends-date-lbl">to</label>
+                  <input type="date" id="trends-c2-cutoff" onchange="renderTrends()">
+                </div>
+                <span class="trends-window-range" id="trends-c2-label">—</span>
+              </div>
+            </div>
+
+            <div id="trends-table-wrap"></div>
+          </div>
+
+        </div><!-- /results -->
+
+      </div><!-- /view-bd-metrics -->
+
+      <!-- ══ VIEW: DATA UPLOAD ══ -->
+      <div id="view-data-upload" class="hidden">
+        <div class="view-header">
+          <div class="view-title"><i class="ti ti-upload" style="color:var(--hs-red)"></i> Data Upload</div>
+          <div class="view-subtitle">Manage all data sources for the dashboard. Each upload overwrites previous data for that source.</div>
+        </div>
+
+        <div class="upload-cards-grid">
+
+          <!-- Leads -->
+          <div class="uz" id="uz-leads" onclick="document.getElementById('fi-leads').click()">
+            <input type="file" id="fi-leads" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'leads')">
+            <div class="uz-icon"><i class="ti ti-users"></i></div>
+            <div class="uz-title" id="uz-leads-lbl">Leads</div>
+            <div class="uz-sub">Salesforce leads export<span class="uz-desc">Overwrites everything on upload</span></div>
+            <div class="uz-saved hidden" id="uz-leads-saved"></div>
+            <div class="progress-bar hidden" id="pb-leads"><div class="progress-fill" id="pf-leads" style="width:0%"></div></div>
+          </div>
+
+          <!-- Opportunities -->
+          <div class="uz" id="uz-opp" onclick="document.getElementById('fi-opp').click()">
+            <input type="file" id="fi-opp" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'opp')">
+            <div class="uz-icon"><i class="ti ti-building-community"></i></div>
+            <div class="uz-title" id="uz-opp-lbl">Opportunities</div>
+            <div class="uz-sub">Salesforce opportunities export<span class="uz-desc">Overwrites everything on upload</span></div>
+            <div class="uz-saved hidden" id="uz-opp-saved"></div>
+            <div class="progress-bar hidden" id="pb-opp"><div class="progress-fill" id="pf-opp" style="width:0%"></div></div>
+          </div>
+
+          <!-- Realtor Owner Map -->
+          <div class="uz" id="uz-realtor-map" onclick="document.getElementById('fi-realtor-map').click()">
+            <input type="file" id="fi-realtor-map" accept=".xlsx,.xls" style="display:none" onchange="loadSfReference(this)">
+            <div class="uz-icon"><i class="ti ti-map-pin"></i></div>
+            <div class="uz-title" id="uz-realtor-map-lbl">Realtor Owner Map</div>
+            <div class="uz-sub">Realtor to BD assignment reference<span class="uz-desc">Overwrites everything on upload</span></div>
+            <span id="sf-ref-status" style="font-size:10px;color:#667799;display:block;margin-top:6px;min-height:14px"></span>
+            <div class="uz-saved hidden" id="uz-realtor-map-saved"></div>
+            <div class="progress-bar hidden" id="pb-realtor-map"><div class="progress-fill" id="pf-realtor-map" style="width:0%"></div></div>
+          </div>
+
+          <!-- Calls -->
+          <div class="uz" id="uz-calls" onclick="document.getElementById('fi-calls').click()">
+            <input type="file" id="fi-calls" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'calls')">
+            <div class="uz-icon"><i class="ti ti-phone"></i></div>
+            <div class="uz-title" id="uz-calls-lbl">Calls</div>
+            <div class="uz-sub">BD call activity — full year file<span class="uz-desc">Overwrites everything on upload</span></div>
+            <div class="uz-saved hidden" id="uz-calls-saved"></div>
+            <div class="progress-bar hidden" id="pb-calls"><div class="progress-fill" id="pf-calls" style="width:0%"></div></div>
+          </div>
+
+          <!-- LO Reference -->
+          <div class="uz" id="uz-loref" onclick="document.getElementById('fi-loref').click()">
+            <input type="file" id="fi-loref" accept=".xlsx,.xls" style="display:none" onchange="handleFile(event,'lo_reference')">
+            <div class="uz-icon"><i class="ti ti-id-badge"></i></div>
+            <div class="uz-title" id="uz-loref-lbl">LO Reference</div>
+            <div class="uz-sub">Loan Officer name aliases for Zoom<span class="uz-desc">Overwrites everything on upload</span></div>
+            <div class="uz-saved hidden" id="uz-loref-saved"></div>
+            <div class="progress-bar hidden" id="pb-loref"><div class="progress-fill" id="pf-loref" style="width:0%"></div></div>
+          </div>
+
+          <!-- Zoom Meetings -->
+          <div class="uz" id="uz-zoom" style="cursor:default">
+            <input type="file" id="fi-zoom" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'zoom')">
+            <div class="uz-icon"><i class="ti ti-video"></i></div>
+            <div class="uz-title" id="uz-zoom-lbl">Zoom Meetings</div>
+            <div class="uz-sub">Zoom meeting details export — one file per month<span class="uz-desc">Overwrites the selected month on upload</span></div>
+            <div class="uz-zoom-selectors">
+              <select id="zoom-upload-year" onclick="event.stopPropagation()"></select>
+              <select id="zoom-upload-month" onclick="event.stopPropagation()">
+                <option value="01">January</option>
+                <option value="02">February</option>
+                <option value="03">March</option>
+                <option value="04">April</option>
+                <option value="05">May</option>
+                <option value="06">June</option>
+                <option value="07">July</option>
+                <option value="08">August</option>
+                <option value="09">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+              </select>
+            </div>
+            <button class="btn-sm" onclick="document.getElementById('fi-zoom').click()" style="margin-top:10px;width:100%;justify-content:center">
+              <i class="ti ti-upload"></i> Select file
+            </button>
+            <div class="uz-saved hidden" id="uz-zoom-saved"></div>
+            <div class="progress-bar hidden" id="pb-zoom"><div class="progress-fill" id="pf-zoom" style="width:0%"></div></div>
+          </div>
+
+        </div><!-- /upload-cards-grid -->
+      </div><!-- /view-data-upload -->
+
+      <!-- ══ VIEW: LO METRICS ══ -->
+      <div id="view-lo-metrics" class="hidden">
+
+        <div class="card">
+          <div class="card-header">
+            <i class="ti ti-adjustments-horizontal" style="color:var(--hs-red);font-size:17px"></i>
+            <span class="card-title">LO Calculation Parameters</span>
+          </div>
+          <div class="cfg-grid">
+            <div class="cfg-group">
+              <label class="lbl">Cutoff Date</label>
+              <input type="date" id="lo-cutoff-date">
+            </div>
+            <div class="cfg-group">
+              <label class="lbl">Search</label>
+              <select id="lo-mode-selector" onchange="onLoModeSelect(this.value)" style="font-weight:600">
+                <option value="active">✅ Active realtors</option>
+                <option value="inactive">⏸ Inactive realtors</option>
+              </select>
+              <div class="hint">Select which group to analyze</div>
+            </div>
+            <div class="cfg-group active-g" id="lo-cfg-active-window">
+              <label class="lbl">✅ Active Window (days)</label>
+              <input type="number" id="lo-window-days" value="60" min="1">
+              <div class="hint">Active = leads in the last N days from cutoff</div>
+            </div>
+            <div class="cfg-group inactive-g" id="lo-cfg-inactive-from" style="opacity:.4;pointer-events:none">
+              <label class="lbl">⏸ Inactive: search from</label>
+              <input type="date" id="lo-inactive-from">
+              <div class="hint">Only inactive realtors with at least 1 lead since this date</div>
+            </div>
+            <div class="cfg-group inactive-g" id="lo-cfg-react-days">
+              <label class="lbl">⏸ Reactivation threshold C4 (days)</label>
+              <input type="number" id="lo-react-days" value="150" min="1">
+              <div class="hint">2nd to last lead before cutoff - N days</div>
+            </div>
+          </div>
+          <div class="cfg-group" style="margin-top:12px">
+            <label class="lbl">Loan Officers (comma-separated)</label>
+            <textarea id="lo-list" rows="3" style="width:100%;font-size:12px;padding:8px;border:1px solid #D0D5E2;border-radius:6px;resize:vertical;font-family:inherit">Ana Milena Zegarra, Gissel Stephanie Garcia, Giancarlo Laino, Aimmee Buendia, Nathan Martinez, Rafael Jubiz, Erick Rivera, Carmen Membreno, Juseth Castro, Mariano Claudio</textarea>
+            <div class="hint">Leave empty to auto-discover all LOs from data</div>
           </div>
         </div>
 
-        <div id="trends-table-wrap"></div>
-      </div>
+        <button class="run-btn" id="lo-run-btn" onclick="runLoCalc()">
+          <i class="ti ti-player-play"></i> Calculate LO Metrics
+        </button>
 
-    </div>
+        <div id="lo-results" class="hidden">
+          <div class="mcards" id="lo-summary-cards"></div>
 
-  </div>
+          <div class="tabs">
+            <button class="lo-tab active" onclick="showLoTab('med')"><i class="ti ti-chart-bar"></i> Ratings</button>
+            <button class="lo-tab" onclick="showLoTab('sc')"><i class="ti ti-trophy"></i> Scorecard</button>
+            <button class="lo-tab" onclick="showLoTab('trends')"><i class="ti ti-chart-line"></i> Trends</button>
+            <button class="lo-tab" onclick="showLoTab('perf')"><i class="ti ti-chart-arrows-vertical"></i> Performance</button>
+            <button class="lo-tab" onclick="showLoTab('pipeline')"><i class="ti ti-git-branch"></i> Pipeline</button>
+            <button class="lo-tab" onclick="showLoTab('assign')"><i class="ti ti-checkbox"></i> Realtors <span class="tab-badge" id="lo-pending-badge">0</span></button>
+          </div>
 
-  <!-- SETTINGS PANEL -->
+          <!-- RATINGS -->
+          <div id="lo-tab-med">
+            <div class="filters">
+              <select id="lo-filter-med" multiple size="4" onchange="renderLoTable()">
+                <option value="">All Ratings</option>
+              </select>
+              <select id="lo-filter-own" multiple size="4" onchange="renderLoTable()">
+                <option value="">All LOs</option>
+              </select>
+              <select id="lo-filter-branch" multiple size="4" onchange="renderLoTable()">
+                <option value="">All Branches</option>
+              </select>
+              <button class="btn-sm" onclick="exportLoCsv()"><i class="ti ti-download"></i> CSV</button>
+            </div>
+            <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
+            <div class="twrap">
+              <table>
+                <thead id="lo-table-head"></thead>
+                <tbody id="lo-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- SCORECARD -->
+          <div id="lo-tab-sc" class="hidden">
+            <div class="filters" style="margin-bottom:16px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+                <label class="lbl">Filter by Rating</label>
+                <select id="lo-sc-filter-med" multiple size="4" onchange="refreshLoScorecard()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+                <label class="lbl">Filter by LO</label>
+                <select id="lo-sc-filter-own" multiple size="4" onchange="refreshLoScorecard()"></select>
+              </div>
+              <button class="btn-sm" onclick="clearLoScorecardFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+            </div>
+            <div class="sc-grid" id="lo-scorecard-grid"></div>
+            <div id="lo-rankings-section" class="hidden">
+              <div class="rankings-cols">
+                <div id="lo-ranking-hunting"></div>
+                <div id="lo-ranking-farming"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TRENDS -->
+          <div id="lo-tab-trends" class="hidden">
+            <div class="trends-header">
+              <div class="trends-title">Realtor Retention &amp; Loan Officer Evolution</div>
+              <div class="trends-subtitle">Hunting = new realtors acquired in the period &nbsp;&middot;&nbsp; Farming = existing relationships that remained active</div>
+            </div>
+            <div class="trends-windows">
+              <div class="trends-window-row">
+                <span class="trends-window-label">Current Window</span>
+                <span class="trends-window-range" id="lo-trends-cur-label">Run calculation to load</span>
+                <span class="trends-window-note">(derived from LO Metrics parameters &mdash; read only)</span>
+              </div>
+              <div class="trends-window-row">
+                <span class="trends-window-label">Comparison 1</span>
+                <div class="trends-date-pair">
+                  <label class="trends-date-lbl">From</label>
+                  <input type="date" id="lo-trends-c1-floor" onchange="renderLoTrends()">
+                  <label class="trends-date-lbl">to</label>
+                  <input type="date" id="lo-trends-c1-cutoff" onchange="renderLoTrends()">
+                </div>
+                <span class="trends-window-range" id="lo-trends-c1-label">—</span>
+              </div>
+              <div class="trends-window-row">
+                <span class="trends-window-label">Comparison 2</span>
+                <div class="trends-date-pair">
+                  <label class="trends-date-lbl">From</label>
+                  <input type="date" id="lo-trends-c2-floor" onchange="renderLoTrends()">
+                  <label class="trends-date-lbl">to</label>
+                  <input type="date" id="lo-trends-c2-cutoff" onchange="renderLoTrends()">
+                </div>
+                <span class="trends-window-range" id="lo-trends-c2-label">—</span>
+              </div>
+            </div>
+            <div id="lo-trends-table-wrap"></div>
+          </div>
+
+          <!-- PERFORMANCE -->
+          <div id="lo-tab-perf" class="hidden">
+            <div class="perf-filters-wrap">
+              <div class="perf-filter-group">
+                <label class="lbl">Loan Officer</label>
+                <select id="lo-perf-owner" onchange="renderLoPerformance()">
+                  <option value="">&#8212; Select LO &#8212;</option>
+                </select>
+              </div>
+              <div class="perf-filter-group">
+                <label class="lbl">Period</label>
+                <div class="perf-period-row">
+                  <select id="lo-perf-year" onchange="renderLoPerformance()" class="perf-year-sel"></select>
+                  <select id="lo-perf-months" multiple size="5" onchange="renderLoPerformance()"></select>
+                </div>
+              </div>
+              <div class="perf-filter-group">
+                <label class="lbl">Compare to</label>
+                <div class="perf-period-row">
+                  <select id="lo-perf-cmp-year" onchange="renderLoPerformance()" class="perf-year-sel"></select>
+                  <select id="lo-perf-cmp-months" multiple size="5" onchange="renderLoPerformance()"></select>
+                </div>
+              </div>
+            </div>
+            <div class="filter-hint">Ctrl+click to select multiple months &middot; comparison cuts at same week-of-month as today for fair comparison</div>
+            <div id="lo-perf-content" style="margin-top:18px"></div>
+          </div>
+
+          <!-- PIPELINE -->
+          <div id="lo-tab-pipeline" class="hidden">
+            <div class="pl-section-header">
+              <i class="ti ti-git-branch" style="font-size:16px;color:var(--hs-red)"></i>
+              <span class="pl-section-title">Open Pipeline</span>
+            </div>
+            <div class="filters" style="margin-bottom:12px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:130px">
+                <label class="lbl">Filter by LO</label>
+                <select id="lo-pl-filter-lo" multiple size="4" onchange="renderLoPipeline()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;min-width:170px">
+                <label class="lbl">Active if lead since</label>
+                <input type="date" id="lo-pl-inactive-cutoff" onchange="renderLoPipeline()">
+                <div class="hint">Realtor is active if they shared a lead on or after this date</div>
+              </div>
+              <button class="btn-sm" onclick="clearLoPipelineFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+            </div>
+            <div class="filter-hint">Ctrl+click to select multiple &middot; click a stage chip to view detail</div>
+            <div id="lo-pl-pipeline-content" style="margin-top:14px"></div>
+
+            <div class="pl-section-header" style="margin-top:32px">
+              <i class="ti ti-circle-check" style="font-size:16px;color:#085041"></i>
+              <span class="pl-section-title">Closed Won</span>
+            </div>
+            <div class="filters" style="margin-bottom:12px;align-items:flex-end">
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
+                <label class="lbl">Year</label>
+                <select id="lo-pl-cw-year" multiple size="3" onchange="renderLoCwSection()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px">
+                <label class="lbl">Month</label>
+                <select id="lo-pl-cw-month" multiple size="3" onchange="renderLoCwSection()"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px">
+                <label class="lbl">Branch</label>
+                <select id="lo-pl-filter-cw-branch" multiple size="3" onchange="renderLoCwSection()"></select>
+              </div>
+              <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+                <button class="btn-sm" onclick="clearLoCwFilters()"><i class="ti ti-x"></i> Clear Filters</button>
+              </div>
+            </div>
+            <div class="filter-hint">Ctrl+click to select multiple</div>
+            <div id="lo-pl-cw-content" style="margin-top:14px"></div>
+          </div>
+
+          <!-- REALTORS (Assignments) -->
+          <div id="lo-tab-assign" class="hidden">
+            <div class="assign-subnav">
+              <button class="assign-subnav-btn active" id="lo-assign-tab-assigned" onclick="showLoAssignView('assigned')">
+                <i class="ti ti-checkbox"></i> Assigned
+              </button>
+              <button class="assign-subnav-btn" id="lo-assign-tab-unassigned" onclick="showLoAssignView('unassigned')">
+                <i class="ti ti-alert-circle"></i> Unassigned
+                <span class="assign-unassigned-badge" id="lo-unassigned-count-badge">0</span>
+              </button>
+            </div>
+
+            <div id="lo-assign-view-assigned">
+              <div class="assign-stats" id="lo-assign-stats"></div>
+              <div class="assign-toolbar">
+                <input class="assign-search" id="lo-assign-search" placeholder="Search realtor..." oninput="renderLoAssignCards()">
+                <button class="btn-sm btn-primary" onclick="saveAllLoAssignments()"><i class="ti ti-device-floppy"></i> Save All</button>
+                <span id="lo-assign-save-status" class="save-status"></span>
+              </div>
+              <div class="filters">
+                <select id="lo-assign-filter-owner" multiple size="3" onchange="renderLoAssignCards()"></select>
+                <select id="lo-assign-filter-branch" multiple size="3" onchange="renderLoAssignCards()"></select>
+                <select id="lo-assign-filter-med" multiple size="3" onchange="renderLoAssignCards()"></select>
+                <select id="lo-assign-filter-status" onchange="renderLoAssignCards()">
+                  <option value="">All</option>
+                  <option value="active">Active Only</option>
+                  <option value="inactive">Inactive Only</option>
+                  <option value="confirmed">Confirmed Only</option>
+                  <option value="pending">Pending Only</option>
+                  <option value="unassigned">No LO</option>
+                </select>
+                <button class="btn-sm" onclick="clearLoAssignFilters()"><i class="ti ti-rotate"></i> Clear Filters</button>
+              </div>
+              <div class="filter-hint">Ctrl+click to select multiple &middot; click selected to deselect</div>
+              <div class="assign-cards" id="lo-assign-cards"></div>
+            </div>
+
+            <div id="lo-assign-view-unassigned" class="hidden">
+              <div id="lo-unassigned-content"></div>
+            </div>
+          </div>
+
+        </div><!-- /lo-results -->
+
+      </div><!-- /view-lo-metrics -->
+
+    </div><!-- /main -->
+  </div><!-- /app-wrap -->
+
+  <!-- ═══════════════ SETTINGS PANEL ═══════════════ -->
   <div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
   <div class="settings-panel" id="settings-panel">
     <div class="settings-panel-header">
@@ -300,34 +698,8 @@
       <button class="settings-panel-close" onclick="closeSettings()">&#10005;</button>
     </div>
     <div class="settings-panel-body">
-      <div class="settings-section-title">Upload Data</div>
-      <div class="uz" id="uz-leads" onclick="document.getElementById('fi-leads').click()">
-        <input type="file" id="fi-leads" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'leads')">
-        <div class="uz-icon"><i class="ti ti-users"></i></div>
-        <div class="uz-title" id="uz-leads-lbl">Leads Referred By</div>
-        <div class="uz-sub">Click to upload new file</div>
-        <div class="uz-saved hidden" id="uz-leads-saved"></div>
-        <div class="progress-bar hidden" id="pb-leads">
-          <div class="progress-fill" id="pf-leads" style="width:0%"></div>
-        </div>
-      </div>
-      <div class="uz" id="uz-opp" onclick="document.getElementById('fi-opp').click()" style="margin-top:10px">
-        <input type="file" id="fi-opp" accept=".xlsx,.csv" style="display:none" onchange="handleFile(event,'opp')">
-        <div class="uz-icon"><i class="ti ti-building-community"></i></div>
-        <div class="uz-title" id="uz-opp-lbl">Opportunities</div>
-        <div class="uz-sub">Click to upload new file</div>
-        <div class="uz-saved hidden" id="uz-opp-saved"></div>
-        <div class="progress-bar hidden" id="pb-opp">
-          <div class="progress-fill" id="pf-opp" style="width:0%"></div>
-        </div>
-      </div>
-      <div class="settings-section-title" style="margin-top:20px">Change History</div>
-      <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:6px">
-        <button class="btn-sm" onclick="exportLog()"><i class="ti ti-download"></i> CSV</button>
-      </div>
-      <div id="log-list" style="max-height:280px;overflow-y:auto;font-size:11px"></div>
 
-      <div class="settings-section-title" style="margin-top:20px">KPI Goals</div>
+      <div class="settings-section-title">KPI Goals</div>
       <div class="cfg-group">
         <label class="lbl">Monthly Loan Amount Goal ($)</label>
         <input type="number" id="kpi-loan-goal" value="700000" min="0" step="10000" onchange="saveKpiSettings()">
@@ -342,8 +714,7 @@
 
       <div class="settings-section-title" style="margin-top:20px">Group Owners</div>
       <div class="cfg-group">
-        <label class="lbl">Owners <span style="font-weight:400;text-transform:none;font-size:10px;color:#99AABB">—
-            business developers — used for auto-assignment</span></label>
+        <label class="lbl">Owners <span style="font-weight:400;text-transform:none;font-size:10px;color:#99AABB">— business developers — used for auto-assignment</span></label>
         <textarea id="owners-list"
           rows="5">"",  Belkys Armesto, Angie Cassiani, Annie Garrido, Javier Peñaloza, Josue Toro, Giovanni Osorio, Shirlis Naranjo, Samuel Tirado, Jose Falquez</textarea>
         <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
@@ -352,21 +723,16 @@
         </div>
       </div>
 
-      <div class="settings-section-title" style="margin-top:20px">Salesforce Owner Reference</div>
-      <div class="cfg-group">
-        <div class="sf-ref-hint" style="margin-bottom:8px">Upload Excel with Opportunity Name (realtor) and Opportunity Owner (BD) columns to suggest assignments in the Unassigned view. Data is saved to Supabase.</div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <label class="sf-ref-btn">
-            <i class="ti ti-upload"></i> Upload reference file
-            <input type="file" accept=".xlsx,.xls" onchange="loadSfReference(this)" style="display:none">
-          </label>
-          <span id="sf-ref-status" class="sf-ref-status"></span>
-        </div>
+      <div class="settings-section-title" style="margin-top:20px">Change History</div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:6px">
+        <button class="btn-sm" onclick="exportLog()"><i class="ti ti-download"></i> CSV</button>
       </div>
+      <div id="log-list" style="max-height:280px;overflow-y:auto;font-size:11px"></div>
+
     </div>
   </div>
 
-  <!-- DETAIL MODAL -->
+  <!-- ═══════════════ DETAIL MODAL ═══════════════ -->
   <div id="detail-modal" class="modal-overlay hidden" onclick="closeModal(event)">
     <div class="modal-box">
       <div class="modal-header">

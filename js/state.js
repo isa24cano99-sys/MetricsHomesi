@@ -10,5 +10,13 @@ export const state = {
   currentMode: 'active',
   sortCol: 'cnt',
   sortDir: -1,
-  dbConnected: false
+  dbConnected: false,
+  loReferenceMap: new Map(),
+  loActiveResults: [],
+  loInactiveResults: [],
+  loUnassignedResults: [],
+  loMasterMap: new Map(),
+  loCurrentMode: 'active',
+  loSortCol: 'cnt',
+  loSortDir: -1
 };
