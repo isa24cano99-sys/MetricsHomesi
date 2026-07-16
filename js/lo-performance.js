@@ -181,6 +181,103 @@ function calcLoTeamAvgHF(cutoff, baseDate) {
   };
 }
 
+// Zoom time parser (local time for display)
+function _parseZoomTime(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d;
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
+  return null;
+}
+
+// Match participant name against leadsData referred_by (2-level: exact then partial)
+function _loMatchLeads(participantName) {
+  const SKIP = new Set(['de','la','el','the','del','las','los','y','e','a','of','en']);
+  const sigWords = n => norm(n).split(/\s+/).filter(w => w.length >= 3 && !SKIP.has(w));
+  const nPart = norm(participantName);
+  const leads = state.leadsData || [];
+  const exactLeads = leads.filter(row =>
+    norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) === nPart
+  );
+  if (exactLeads.length) return { level: 'exact', leads: exactLeads };
+  const partWords = sigWords(participantName);
+  if (partWords.length >= 2) {
+    const refGroups = new Map();
+    for (const row of leads) {
+      const ref = String(getField(row, 'Referred By', 'referred by') || '').trim();
+      if (!ref) continue;
+      const nRef = norm(ref);
+      if (!refGroups.has(nRef)) refGroups.set(nRef, { leads: [], name: ref });
+      refGroups.get(nRef).leads.push(row);
+    }
+    for (const { leads: rLeads, name } of refGroups.values()) {
+      if (partWords.filter(w => sigWords(name).includes(w)).length >= 2) {
+        return { level: 'partial', leads: rLeads, matchedName: name };
+      }
+    }
+  }
+  return { level: 'none', leads: [] };
+}
+
+// Meetings attended by any LO in loNames array during the given monthKeys Set
+function calcMeetingsAttended(loNames, monthKeys) {
+  const doNotCount = state.doNotCountMeetings || new Set();
+  const loNormed = new Set(loNames.map(l => normalizeLO(l)));
+  const meetingMap = new Map();
+  for (const r of (state.zoomData || [])) {
+    if (!monthKeys.has(r.month_key || '')) continue;
+    if (doNotCount.has(r.meeting_id || '')) continue;
+    const key = (r.meeting_id || '') + '|' + (r.month_key || '') + '|' + (r.start_time || '');
+    if (!meetingMap.has(key)) {
+      meetingMap.set(key, {
+        meeting_id: r.meeting_id || '',
+        host_name: (r.host_name || '').trim(),
+        start_time: r.start_time,
+        duration: r.duration_minutes,
+        topic: (r.topic || '').trim() || null,
+        rows: []
+      });
+    }
+    meetingMap.get(key).rows.push(r);
+  }
+  const attendedMeetings = [];
+  const externalsByNorm = new Map();
+  for (const m of meetingMap.values()) {
+    const externals = m.rows.filter(r => r.is_guest === 'Yes');
+    if (!externals.length) continue;
+    const hostNorm = norm(m.host_name);
+    const loAttended = m.rows.filter(r => r.is_guest !== 'Yes').some(r => {
+      const pn = (r.participant_name || '').trim();
+      if (norm(pn) === hostNorm) return false;
+      return loNormed.has(normalizeLO(pn));
+    });
+    if (!loAttended) continue;
+    const extNames = [...new Map(externals.map(r => [norm(r.participant_name || ''), r.participant_name || ''])).values()].filter(Boolean);
+    attendedMeetings.push({ ...m, externals: extNames });
+    for (const e of extNames) {
+      const nn = norm(e);
+      if (!externalsByNorm.has(nn)) externalsByNorm.set(nn, e);
+    }
+  }
+  const realtorLeadInfo = [];
+  let realtorsWithLeads = 0;
+  for (const [, name] of externalsByNorm.entries()) {
+    const m = _loMatchLeads(name);
+    if (!m.leads.length) continue;
+    realtorsWithLeads++;
+    let minD = null, maxD = null;
+    for (const row of m.leads) {
+      const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+      if (d) { if (!minD || d < minD) minD = d; if (!maxD || d > maxD) maxD = d; }
+    }
+    const me = state.loMasterMap ? state.loMasterMap.get(norm(name)) : null;
+    realtorLeadInfo.push({ name, totalLeads: m.leads.length, firstDate: minD, lastDate: maxD, bdOwner: (me || {}).loan_officer || '' });
+  }
+  realtorLeadInfo.sort((a, b) => b.totalLeads - a.totalLeads);
+  return { meetingsAttended: attendedMeetings.length, uniqueExternals: externalsByNorm.size, realtorsWithLeads, attendedMeetings, realtorLeadInfo };
+}
+
 function goalBar(pct) {
   const w = Math.min(pct, 100);
   const col = pct >= 100 ? '#085041' : pct >= 70 ? '#D4A000' : 'var(--hs-red)';
@@ -231,10 +328,10 @@ function pLabel(year, months0, today, isCompare) {
 // Modal builders
 const _loPerfModalCache = new Map();
 
-function buildLoLoanModal(lo, start, end, label) {
+function buildLoLoanModal(loNames, lo, start, end, label) {
   const rows = (state.oppData || []).filter(row => {
     if (String(getField(row, 'Stage', 'stage') || '').trim().toLowerCase() !== 'closed won') return false;
-    if (!matchLo(row, lo)) return false;
+    if (!loNames.some(l => matchLo(row, l))) return false;
     const d = parseDate(getField(row, 'Disbursement Date', 'disbursement date'));
     if (!d || d < start || d > end) return false;
     if (String(getField(row, 'Lender', 'lender') || '').trim().toLowerCase().includes('city lending inc')) return false;
@@ -273,9 +370,9 @@ function buildLoLoanModal(lo, start, end, label) {
   };
 }
 
-function buildLoPipelineModal(lo, start, end, label) {
+function buildLoPipelineModal(loNames, lo, start, end, label) {
   const rows = (state.oppData || []).filter(row => {
-    if (!matchLo(row, lo)) return false;
+    if (!loNames.some(l => matchLo(row, l))) return false;
     const cd = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
     return cd && cd >= start && cd <= end;
   });
@@ -342,6 +439,54 @@ function buildLoHFModal(isHunting, realtors, lo, label) {
   };
 }
 
+function buildLoMeetingsModal(attendedMeetings, lo, label) {
+  const head = '<tr><th>Date</th><th>BD Host</th><th>Duration</th><th>Topic</th><th>External Realtors</th></tr>';
+  const body = attendedMeetings.map(m => {
+    const dt = m.start_time ? _parseZoomTime(m.start_time) : null;
+    return '<tr>' +
+      '<td class="dt">' + (dt ? fmtDate(dt) : '—') + '</td>' +
+      '<td style="font-size:11px">' + (m.host_name || '—') + '</td>' +
+      '<td style="text-align:center">' + (m.duration != null ? m.duration : '—') + '</td>' +
+      '<td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (m.topic || '') + '">' + (m.topic || '—') + '</td>' +
+      '<td style="font-size:11px">' + (m.externals || []).join(', ') + '</td>' +
+      '</tr>';
+  }).join('');
+  return {
+    title: lo + ' — Meetings Attended',
+    sub: label + ' · ' + attendedMeetings.length + ' meeting' + (attendedMeetings.length !== 1 ? 's' : ''),
+    head, body,
+    csvData: [
+      ['Date', 'BD Host', 'Duration', 'Topic', 'External Realtors'],
+      ...attendedMeetings.map(m => {
+        const dt = m.start_time ? _parseZoomTime(m.start_time) : null;
+        return [fmtDate(dt), m.host_name || '', m.duration != null ? m.duration : '', m.topic || '', (m.externals || []).join('; ')];
+      })
+    ]
+  };
+}
+
+function buildLoRealtorsModal(realtorLeadInfo, lo, label) {
+  const head = '<tr><th>Realtor</th><th>First Lead</th><th>Total Leads</th><th>Last Lead</th><th>BD Assigned</th></tr>';
+  const body = realtorLeadInfo.map(r =>
+    '<tr>' +
+    '<td style="font-weight:600">' + r.name + '</td>' +
+    '<td class="dt">' + fmtDate(r.firstDate) + '</td>' +
+    '<td style="text-align:center;font-weight:700;color:var(--hs-navy)">' + r.totalLeads + '</td>' +
+    '<td class="dt">' + fmtDate(r.lastDate) + '</td>' +
+    '<td style="font-size:11px">' + (r.bdOwner || '—') + '</td>' +
+    '</tr>'
+  ).join('');
+  return {
+    title: lo + ' — Realtors with Leads',
+    sub: label + ' · ' + realtorLeadInfo.length + ' realtor' + (realtorLeadInfo.length !== 1 ? 's' : ''),
+    head, body,
+    csvData: [
+      ['Realtor', 'First Lead', 'Total Leads', 'Last Lead', 'BD Assigned'],
+      ...realtorLeadInfo.map(r => [r.name, fmtDate(r.firstDate), r.totalLeads, fmtDate(r.lastDate), r.bdOwner || ''])
+    ]
+  };
+}
+
 // Main render
 export function renderLoPerformance() {
   const content = document.getElementById('lo-perf-content');
@@ -352,11 +497,15 @@ export function renderLoPerformance() {
     return;
   }
 
-  const lo = (document.getElementById('lo-perf-owner') || {}).value || '';
-  if (!lo) {
-    content.innerHTML = '<div class="perf-empty-bd"><i class="ti ti-user-circle" style="font-size:32px;color:#CCD5E0"></i><div>Select a Loan Officer above</div></div>';
+  // Multi-select: no selection = All LOs from lo-list
+  const loEl = document.getElementById('lo-perf-owner');
+  const selectedLOs = loEl ? Array.from(loEl.selectedOptions).map(o => o.value).filter(Boolean) : [];
+  const loNames = selectedLOs.length ? selectedLOs : getAllowedLOs();
+  if (!loNames.length) {
+    content.innerHTML = '<div class="perf-empty-bd"><i class="ti ti-user-circle" style="font-size:32px;color:#CCD5E0"></i><div>No Loan Officers configured. Add LOs in Settings.</div></div>';
     return;
   }
+  const lo = loNames.length === 1 ? loNames[0] : loNames.length + ' LOs';
 
   const yearEl = document.getElementById('lo-perf-year');
   const monthsEl = document.getElementById('lo-perf-months');
@@ -374,9 +523,7 @@ export function renderLoPerformance() {
   }
 
   const today = new Date();
-  const { start, end } = getPeriodBounds(year, months0, today, false);
   const hasCmp = cmpMonths0.length > 0;
-  const cmpBounds = hasCmp ? getPeriodBounds(cmpYear, cmpMonths0, today, true) : null;
 
   const windowDays = parseInt((document.getElementById('lo-window-days') || {}).value) || 60;
 
@@ -389,13 +536,19 @@ export function renderLoPerformance() {
   const mainHFBase = new Date(mainHFCutoff);
   mainHFBase.setUTCDate(mainHFBase.getUTCDate() - windowDays);
 
-  const mainLoan = calcLoLoanAmount(lo, start, end);
-  const mainPipe = calcLoPipelineActivity(lo, start, end);
-  const mainHF   = calcLoHuntingFarmingForWindow(lo, mainHFBase, mainHFCutoff);
-  const teamAvg  = calcLoTeamAvgHF(mainHFCutoff, mainHFBase);
+  const _hArr    = loNames.map(l => calcLoHuntingFarmingForWindow(l, mainHFBase, mainHFCutoff));
+  const mainHF   = {
+    hunting: _hArr.reduce((s, h) => s + h.hunting, 0),
+    farming: _hArr.reduce((s, h) => s + h.farming, 0),
+    total:   _hArr.reduce((s, h) => s + h.total, 0),
+    huntingRealtors: _hArr.flatMap(h => h.huntingRealtors),
+    farmingRealtors: _hArr.flatMap(h => h.farmingRealtors)
+  };
+  const teamAvg = calcLoTeamAvgHF(mainHFCutoff, mainHFBase);
 
-  const cmpLoan = hasCmp ? calcLoLoanAmount(lo, cmpBounds.start, cmpBounds.end) : null;
-  const cmpPipe = hasCmp ? calcLoPipelineActivity(lo, cmpBounds.start, cmpBounds.end) : null;
+  // Meetings attended (zoomData filtered by monthKeys Set)
+  const monthKeys = new Set(months0.map(m => year + '-' + String(m + 1).padStart(2, '0')));
+  const mainMtg   = calcMeetingsAttended(loNames, monthKeys);
 
   let cmpHF = null, cmpHFCutoff = null, cmpHFBase = null, cmpHFLbl = '';
   if (hasCmp && state.leadsData && state.leadsData.length) {
@@ -411,19 +564,16 @@ export function renderLoPerformance() {
     }
     cmpHFBase = new Date(cmpHFCutoff);
     cmpHFBase.setUTCDate(cmpHFBase.getUTCDate() - windowDays);
-    cmpHF = calcLoHuntingFarmingForWindow(lo, cmpHFBase, cmpHFCutoff);
+    const _chArr = loNames.map(l => calcLoHuntingFarmingForWindow(l, cmpHFBase, cmpHFCutoff));
+    cmpHF = {
+      hunting: _chArr.reduce((s, h) => s + h.hunting, 0),
+      farming: _chArr.reduce((s, h) => s + h.farming, 0),
+      total:   _chArr.reduce((s, h) => s + h.total, 0),
+      huntingRealtors: _chArr.flatMap(h => h.huntingRealtors),
+      farmingRealtors: _chArr.flatMap(h => h.farmingRealtors)
+    };
     cmpHFLbl = ('VS ' + MS_SHORT[lastCmpM] + ' ' + cmpYear + ' · ' + fmtShortDate(cmpHFBase) + ' → ' + fmtShortDate(cmpHFCutoff)).toUpperCase();
   }
-
-  const loanGoal = 700000;
-  const oppsGoal = 10;
-  const loanPct  = loanGoal > 0 ? Math.round((mainLoan / loanGoal) * 100) : 0;
-  const oppsPct  = oppsGoal > 0 ? Math.round((mainPipe.created / oppsGoal) * 100) : 0;
-  const loanCol  = loanPct >= 100 ? '#085041' : loanPct >= 70 ? '#D4A000' : '#CC3030';
-  const oppsCol  = oppsPct >= 100 ? '#085041' : oppsPct >= 70 ? '#D4A000' : '#CC3030';
-
-  const cmpLoanPct = (hasCmp && loanGoal > 0) ? Math.round((cmpLoan / loanGoal) * 100) : null;
-  const cmpOppsPct = (hasCmp && oppsGoal > 0) ? Math.round((cmpPipe.created / oppsGoal) * 100) : null;
 
   const total = mainHF.total || 1;
   const hPct = Math.round((mainHF.hunting / total) * 100);
@@ -432,18 +582,17 @@ export function renderLoPerformance() {
   const mainLbl = pLabel(year, months0, today, false);
   const cmpLbl  = hasCmp ? pLabel(cmpYear, cmpMonths0, today, true) : '';
 
+  const mtgConvPct = mainMtg.uniqueExternals > 0
+    ? Math.round((mainMtg.realtorsWithLeads / mainMtg.uniqueExternals) * 100) : 0;
+
   _loPerfModalCache.clear();
-  _loPerfModalCache.set('loMainLoan',    buildLoLoanModal(lo, start, end, mainLbl));
-  _loPerfModalCache.set('loMainPipe',    buildLoPipelineModal(lo, start, end, mainLbl));
-  _loPerfModalCache.set('loMainHunting', buildLoHFModal(true,  mainHF.huntingRealtors, lo, mainLbl));
-  _loPerfModalCache.set('loMainFarming', buildLoHFModal(false, mainHF.farmingRealtors, lo, mainLbl));
-  if (hasCmp) {
-    _loPerfModalCache.set('loCmpLoan',    buildLoLoanModal(lo, cmpBounds.start, cmpBounds.end, cmpLbl));
-    _loPerfModalCache.set('loCmpPipe',    buildLoPipelineModal(lo, cmpBounds.start, cmpBounds.end, cmpLbl));
-    if (cmpHF) {
-      _loPerfModalCache.set('loCmpHunting', buildLoHFModal(true,  cmpHF.huntingRealtors, lo, cmpLbl));
-      _loPerfModalCache.set('loCmpFarming', buildLoHFModal(false, cmpHF.farmingRealtors, lo, cmpLbl));
-    }
+  _loPerfModalCache.set('loMainMeetings', buildLoMeetingsModal(mainMtg.attendedMeetings, lo, mainLbl));
+  _loPerfModalCache.set('loMainRealtors', buildLoRealtorsModal(mainMtg.realtorLeadInfo, lo, mainLbl));
+  _loPerfModalCache.set('loMainHunting',  buildLoHFModal(true,  mainHF.huntingRealtors, lo, mainLbl));
+  _loPerfModalCache.set('loMainFarming',  buildLoHFModal(false, mainHF.farmingRealtors, lo, mainLbl));
+  if (hasCmp && cmpHF) {
+    _loPerfModalCache.set('loCmpHunting', buildLoHFModal(true,  cmpHF.huntingRealtors, lo, cmpLbl));
+    _loPerfModalCache.set('loCmpFarming', buildLoHFModal(false, cmpHF.farmingRealtors, lo, cmpLbl));
   }
 
   content.innerHTML =
@@ -456,92 +605,39 @@ export function renderLoPerformance() {
 
     '<div class="perf-kpi-grid">' +
 
-    // Card 1: B2C Goal
+    // Card 1: Meetings Attended (NEW)
     '<div class="perf-kpi-card">' +
-      '<div class="perf-card-tag">B2C GOAL PERFORMANCE</div>' +
+      '<div class="perf-card-tag">MEETINGS ATTENDED</div>' +
       '<div class="perf-main-section">' +
         '<div class="perf-two-col">' +
           '<div class="perf-col">' +
-            '<div class="perf-col-label">CUMULATIVE</div>' +
-            '<button class="perf-clickable-val" data-lo-perf-modal="loMainLoan">' + fmtMoney(mainLoan) + '</button>' +
-            '<div class="perf-card-exact">' + fmtMoneyFull(mainLoan) + '</div>' +
+            '<div class="perf-col-label">MEETINGS</div>' +
+            '<button class="perf-clickable-val" data-lo-perf-modal="loMainMeetings">' + mainMtg.meetingsAttended + '</button>' +
+            '<div class="perf-card-exact">with external realtors</div>' +
           '</div>' +
           '<div class="perf-col perf-col-secondary">' +
-            '<div class="perf-col-label">GOAL</div>' +
-            '<div class="perf-col-goal-val">' + fmtMoney(loanGoal) + '</div>' +
+            '<div class="perf-col-label">UNIQUE REALTORS</div>' +
+            '<div class="perf-col-goal-val">' + mainMtg.uniqueExternals + '</div>' +
           '</div>' +
         '</div>' +
-        goalBar(loanPct) +
-        '<div class="perf-pct-row">' +
-          '<span class="perf-big-pct" style="color:' + loanCol + '">' + loanPct + '%<span class="perf-pct-of"> of goal</span></span>' +
-          goalChip(loanPct) +
+        '<div style="margin-top:10px;border-top:1px solid #E8EDF5;padding-top:10px">' +
+          '<div class="perf-two-col">' +
+            '<div class="perf-col">' +
+              '<div class="perf-col-label">IN PIPELINE</div>' +
+              '<button class="perf-clickable-val" style="color:#085041" data-lo-perf-modal="loMainRealtors">' + mainMtg.realtorsWithLeads + '</button>' +
+              '<div class="perf-card-exact">referred leads</div>' +
+            '</div>' +
+            '<div class="perf-col perf-col-secondary">' +
+              '<div class="perf-col-label">CONVERSION</div>' +
+              '<div class="perf-col-goal-val" style="color:' + (mtgConvPct >= 50 ? '#085041' : mtgConvPct >= 25 ? '#D4A000' : '#CC3030') + '">' + mtgConvPct + '%</div>' +
+              '<div class="perf-card-exact">of meeting realtors</div>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
       '</div>' +
-      (hasCmp
-        ? '<div class="perf-cmp-section">' +
-            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
-            '<div class="perf-two-col">' +
-              '<div class="perf-col">' +
-                '<div class="perf-col-label">CUMULATIVE</div>' +
-                '<button class="perf-cmp-big-val perf-cmp-clickable" data-lo-perf-modal="loCmpLoan">' + fmtMoney(cmpLoan) + '</button>' +
-              '</div>' +
-              '<div class="perf-col perf-col-secondary">' +
-                '<div class="perf-col-label">GOAL %</div>' +
-                '<div class="perf-cmp-pct-val">' + (cmpLoanPct !== null ? cmpLoanPct + '% of goal' : '—') + '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="perf-change-row">' +
-              '<span class="perf-change-lbl">CHANGE</span>' +
-              dChipMoney(mainLoan, cmpLoan) +
-            '</div>' +
-          '</div>'
-        : '') +
     '</div>' +
 
-    // Card 2: Pipeline Activity
-    '<div class="perf-kpi-card">' +
-      '<div class="perf-card-tag">PIPELINE ACTIVITY</div>' +
-      '<div class="perf-main-section">' +
-        '<div class="perf-two-col">' +
-          '<div class="perf-col">' +
-            '<div class="perf-col-label">OPP. CREATED</div>' +
-            '<button class="perf-clickable-val" data-lo-perf-modal="loMainPipe">' + mainPipe.created + '</button>' +
-            '<div class="perf-card-exact">Still Active: <strong>' + mainPipe.stillActive + '</strong> / ' + mainPipe.created + '</div>' +
-          '</div>' +
-          '<div class="perf-col perf-col-secondary">' +
-            '<div class="perf-col-label">GOAL</div>' +
-            '<div class="perf-col-goal-val">' + oppsGoal + '</div>' +
-          '</div>' +
-        '</div>' +
-        goalBar(oppsPct) +
-        '<div class="perf-pct-row">' +
-          '<span class="perf-big-pct" style="color:' + oppsCol + '">' + oppsPct + '%<span class="perf-pct-of"> of goal</span></span>' +
-          goalChip(oppsPct) +
-        '</div>' +
-      '</div>' +
-      (hasCmp
-        ? '<div class="perf-cmp-section">' +
-            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
-            '<div class="perf-two-col">' +
-              '<div class="perf-col">' +
-                '<div class="perf-col-label">OPP. CREATED</div>' +
-                '<button class="perf-cmp-big-val perf-cmp-clickable" data-lo-perf-modal="loCmpPipe">' + cmpPipe.created + '</button>' +
-                '<div class="perf-cmp-metric-sub">Active: ' + cmpPipe.stillActive + '</div>' +
-              '</div>' +
-              '<div class="perf-col perf-col-secondary">' +
-                '<div class="perf-col-label">GOAL %</div>' +
-                '<div class="perf-cmp-pct-val">' + (cmpOppsPct !== null ? cmpOppsPct + '% of goal' : '—') + '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="perf-change-row">' +
-              '<span class="perf-change-lbl">CHANGE</span>' +
-              dChipInt(mainPipe.created, cmpPipe.created) +
-            '</div>' +
-          '</div>'
-        : '') +
-    '</div>' +
-
-    // Card 3: B2B Behavior
+    // Card 2: B2B Behavior (NEW — at front)
     '<div class="perf-kpi-card">' +
       '<div class="perf-card-tag">B2B BEHAVIOR &mdash; HUNTING / FARMING</div>' +
       '<div class="perf-main-section">' +
@@ -597,9 +693,7 @@ function populateLoSelects() {
   if (!ownerEl) return;
 
   const los = getAllowedLOs();
-  const prevLO = ownerEl.value;
-  ownerEl.innerHTML = '<option value="">&#8212; Select LO &#8212;</option>' +
-    los.map(lo => '<option value="' + lo + '"' + (lo === prevLO ? ' selected' : '') + '>' + lo + '</option>').join('');
+  ownerEl.innerHTML = los.map(lo => '<option value="' + lo + '">' + lo + '</option>').join('');
 
   const yearsSet = new Set();
   const today = new Date();

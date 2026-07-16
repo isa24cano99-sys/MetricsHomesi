@@ -20,5 +20,6 @@ export const state = {
   loSortCol: 'cnt',
   loSortDir: -1,
   callsData: [],
-  zoomData: []
+  zoomData: [],
+  doNotCountMeetings: new Set()
 };

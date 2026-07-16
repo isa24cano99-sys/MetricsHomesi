@@ -11,6 +11,63 @@ function parseZoomTime(s) {
   return null;
 }
 
+function _maxLeadDate(leads) {
+  let max = null;
+  for (const row of leads) {
+    const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+    if (d && (!max || d > max)) max = d;
+  }
+  return max;
+}
+
+function _fmtLeadDate(d) {
+  if (!d) return '';
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return MO[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+}
+
+// Returns { level: 'exact'|'partial'|'none', count, lastDate, ownerMatch, leads, matchedName? }
+function findRealtorMatch(participantName, hostName) {
+  const SKIP = new Set(['de','la','el','the','del','las','los','y','e','a','of','en']);
+  const sigWords = n => norm(n).split(/\s+/).filter(w => w.length >= 3 && !SKIP.has(w));
+  const nPart = norm(participantName);
+  const nHost = norm(hostName || '');
+  const leads = state.leadsData || [];
+
+  const exactLeads = leads.filter(row =>
+    norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) === nPart
+  );
+  if (exactLeads.length) {
+    const ownerMatch = exactLeads.some(row =>
+      norm(String(getField(row, 'Lead Owner', 'lead owner') || '').trim()) === nHost
+    );
+    return { level: 'exact', leads: exactLeads, count: exactLeads.length, lastDate: _maxLeadDate(exactLeads), ownerMatch };
+  }
+
+  const partWords = sigWords(participantName);
+  if (partWords.length >= 2) {
+    const refGroups = new Map();
+    for (const row of leads) {
+      const ref = String(getField(row, 'Referred By', 'referred by') || '').trim();
+      if (!ref) continue;
+      const nRef = norm(ref);
+      if (!refGroups.has(nRef)) refGroups.set(nRef, { leads: [], originalName: ref });
+      refGroups.get(nRef).leads.push(row);
+    }
+    for (const { leads: rLeads, originalName } of refGroups.values()) {
+      const refWords = sigWords(originalName);
+      if (partWords.filter(w => refWords.includes(w)).length >= 2) {
+        const ownerMatch = rLeads.some(row =>
+          norm(String(getField(row, 'Lead Owner', 'lead owner') || '').trim()) === nHost
+        );
+        return { level: 'partial', leads: rLeads, count: rLeads.length, lastDate: _maxLeadDate(rLeads), ownerMatch, matchedName: originalName };
+      }
+    }
+  }
+
+  return { level: 'none' };
+}
+
 /*
   Supabase table required:
   CREATE TABLE meeting_participants_review (
@@ -26,42 +83,116 @@ function parseZoomTime(s) {
   );
 */
 
-const _reviewData = new Map(); // key: "participantName|meetingId" → { is_realtor }
+// key: "participantName|meetingId" → { isRealtor: bool, confirmedRealtorName: string|null }
+// confirmedRealtorName: null = not decided, '' = denied (different person), 'Name' = confirmed match
+const _reviewData = new Map();
+
+let _delegationSetup = false;
+function setupDelegation() {
+  if (_delegationSetup) return;
+  _delegationSetup = true;
+  document.addEventListener('click', e => {
+    const markBtn = e.target.closest('[data-mr-action="mark-participant"]');
+    if (markBtn) {
+      const name      = markBtn.dataset.participant || '';
+      const email     = markBtn.dataset.email || '';
+      const host      = markBtn.dataset.host || '';
+      const meetingId = markBtn.dataset.meetingId || '';
+      const date      = markBtn.dataset.date || '';
+      const isRealtor = markBtn.dataset.isRealtor === 'true';
+      markMeetingParticipant(name, email, host, meetingId, date, isRealtor);
+      return;
+    }
+    const confirmBtn = e.target.closest('[data-mr-action="confirm-match"]');
+    if (confirmBtn) {
+      const name          = confirmBtn.dataset.participant || '';
+      const email         = confirmBtn.dataset.email || '';
+      const host          = confirmBtn.dataset.host || '';
+      const meetingId     = confirmBtn.dataset.meetingId || '';
+      const date          = confirmBtn.dataset.date || '';
+      const confirmedName = confirmBtn.dataset.confirmedName; // '' = denied, 'Name' = confirmed
+      markMeetingParticipant(name, email, host, meetingId, date, true, confirmedName);
+      return;
+    }
+    const dncBtn = e.target.closest('[data-mr-action="toggle-no-count"]');
+    if (dncBtn) {
+      const currentValue = dncBtn.dataset.current === 'true';
+      toggleDoesNotCount(dncBtn.dataset.meetingId || '', dncBtn.dataset.host || '', currentValue);
+    }
+  });
+}
 
 export async function loadMeetingReviews() {
   try {
-    const rows = await sbFetch('meeting_participants_review?select=participant_name,meeting_id,is_realtor');
+    const rows = await sbFetch('meeting_participants_review?select=participant_name,meeting_id,is_realtor,confirmed_realtor_name,does_not_count');
     _reviewData.clear();
+    state.doNotCountMeetings = new Set();
     for (const r of (rows || [])) {
-      _reviewData.set((r.participant_name || '') + '|' + (r.meeting_id || ''), r.is_realtor);
+      if (r.participant_name === '_meeting_') {
+        if (r.does_not_count) state.doNotCountMeetings.add(r.meeting_id || '');
+      } else {
+        _reviewData.set(
+          (r.participant_name || '') + '|' + (r.meeting_id || ''),
+          { isRealtor: r.is_realtor, confirmedRealtorName: r.confirmed_realtor_name ?? null }
+        );
+      }
     }
   } catch (_) {}
 }
 
-export async function markMeetingParticipant(name, email, host, meetingId, date, isRealtor) {
+export async function markMeetingParticipant(name, email, host, meetingId, date, isRealtor, confirmedRealtorName) {
   const key = name + '|' + meetingId;
-  _reviewData.set(key, isRealtor);
+  const existing = _reviewData.get(key) || {};
+  const newConfirmed = confirmedRealtorName !== undefined ? confirmedRealtorName : (existing.confirmedRealtorName ?? null);
+  _reviewData.set(key, { isRealtor, confirmedRealtorName: newConfirmed });
   try {
-    await sbFetch('meeting_participants_review?on_conflict=participant_name,meeting_id', {
+    const body = {
+      participant_name: name,
+      participant_email: email || null,
+      meeting_id: meetingId,
+      meeting_date: date || null,
+      host_name: host || null,
+      is_realtor: isRealtor
+    };
+    if (confirmedRealtorName !== undefined) {
+      // '' = denied (different person), 'Name' = confirmed, null cleared
+      body.confirmed_realtor_name = confirmedRealtorName === '' ? null : (confirmedRealtorName || null);
+    }
+    const result = await sbFetch('meeting_participants_review?on_conflict=participant_name,meeting_id', {
       method: 'POST',
-      prefer: 'return=minimal,resolution=merge-duplicates',
-      headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
-      body: JSON.stringify({
-        participant_name: name,
-        participant_email: email || null,
-        meeting_id: meetingId,
-        meeting_date: date || null,
-        host_name: host || null,
-        is_realtor: isRealtor
-      })
+      prefer: 'resolution=merge-duplicates',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify(body)
     });
+    console.log('[MR] saved:', result);
   } catch (e) {
     console.warn('[markMeetingParticipant] error:', e.message);
   }
   renderMeetingsReview();
 }
 
+export async function toggleDoesNotCount(meetingId, hostName, currentValue) {
+  console.log('[MR] markDoesNotCount called:', meetingId, hostName, currentValue);
+  const newVal = !currentValue;
+  if (!state.doNotCountMeetings) state.doNotCountMeetings = new Set();
+  if (newVal) { state.doNotCountMeetings.add(meetingId); } else { state.doNotCountMeetings.delete(meetingId); }
+  try {
+    const body = { participant_name: '_meeting_', meeting_id: meetingId, host_name: hostName || null, does_not_count: newVal, is_realtor: null };
+    const result = await sbFetch('meeting_participants_review?on_conflict=participant_name,meeting_id', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify(body)
+    });
+    console.log('[MR] toggleDNC result:', result);
+  } catch (e) {
+    console.warn('[toggleDNC] error:', e.message);
+    if (newVal) { state.doNotCountMeetings.delete(meetingId); } else { state.doNotCountMeetings.add(meetingId); }
+  }
+  renderMeetingsReview();
+}
+
 export function initMeetingsReview() {
+  setupDelegation();
   const yearSel  = document.getElementById('mr-year');
   const monthSel = document.getElementById('mr-month');
   const hostSel  = document.getElementById('mr-host');
@@ -101,9 +232,12 @@ export function initMeetingsReview() {
       return '<option value="' + mm + '"' + (mm === prevMonth ? ' selected' : '') + '>' + label + '</option>';
     }).join('');
 
+  const filteredHosts = [...hostsSet].sort();
+  console.log('[MR] populating selector with:', filteredHosts);
+
   const prevHost = hostSel.value;
   hostSel.innerHTML = '<option value="">All BDs</option>' +
-    [...hostsSet].sort().map(h => '<option value="' + h + '"' + (h === prevHost ? ' selected' : '') + '>' + h + '</option>').join('');
+    filteredHosts.map(h => '<option value="' + h + '"' + (h === prevHost ? ' selected' : '') + '>' + h + '</option>').join('');
 
   renderMeetingsReview();
 }
@@ -126,9 +260,17 @@ export function renderMeetingsReview() {
   const monthVal = (document.getElementById('mr-month') || {}).value || '';
   const hostVal  = (document.getElementById('mr-host')  || {}).value || '';
 
+  // Always restrict to BD owners — same parsing as initMeetingsReview
+  const allowedOwners = (document.getElementById('owners-list') || { value: '' }).value
+    .split(',').map(s => s.trim()).filter(s => s !== '');
+  const ownersNorm = new Set(allowedOwners.map(o => norm(o)));
+
   // Build per-meeting groups from zoomData
   const meetingMap = new Map();
   for (const r of (state.zoomData || [])) {
+    // Base filter: host must be a BD in the allowed list
+    if (!ownersNorm.has(norm((r.host_name || '').trim()))) continue;
+
     const mk = r.month_key || '';
     if (yearVal  && mk.slice(0, 4) !== yearVal)  continue;
     if (monthVal && mk.slice(5, 7) !== monthVal) continue;
@@ -162,7 +304,9 @@ export function renderMeetingsReview() {
 
   const MS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-  const html = meetings.map(m => {
+  const doNotCount = state.doNotCountMeetings || new Set();
+  const rendered = meetings.map(m => {
+    const isDNC = doNotCount.has(m.meeting_id);
     const dateStr = m.start_time
       ? MS[m.start_time.getMonth()] + ' ' + m.start_time.getDate() + ', ' + m.start_time.getFullYear()
       : '—';
@@ -182,7 +326,28 @@ export function renderMeetingsReview() {
     };
 
     const internals = participants.filter(p => !isGuest(p));
-    const externals  = participants.filter(p => isGuest(p));
+    const rawExternals = participants.filter(p => isGuest(p));
+
+    // Deduplicate externals: device entries like "Mariano's Z Fold6" collapse into clean name
+    const DEVICE_WORDS = ['iphone', 'ipad', 'android', 'fold', 'samsung', 'pixel', 'tablet', 'galaxy'];
+    const hasDeviceWord = n => { const nn = norm(n); return DEVICE_WORDS.some(w => nn.includes(w)); };
+    const extNameKey = n => norm(n.trim().split(/\s+/)[0].replace(/[’']s$/i, '').replace(/[’']/g, ''));
+    const extDeduped = [];
+    const extSeen = new Map();
+    for (const p of rawExternals) {
+      const n = (p.participant_name || '').trim();
+      const key = extNameKey(n);
+      if (!extSeen.has(key)) {
+        extSeen.set(key, extDeduped.length);
+        extDeduped.push(p);
+      } else {
+        const idx = extSeen.get(key);
+        if (hasDeviceWord((extDeduped[idx].participant_name || '').trim()) && !hasDeviceWord(n)) {
+          extDeduped[idx] = p; // replace device entry with clean name
+        }
+      }
+    }
+    const externals = extDeduped;
 
     const renderInternalParticipant = p => {
       const name = (p.participant_name || '').trim();
@@ -204,68 +369,119 @@ export function renderMeetingsReview() {
       const email = (p.participant_email || '').trim();
       const reviewKey = name + '|' + m.meeting_id;
       const reviewed = _reviewData.has(reviewKey);
-      const isRealtor = _reviewData.get(reviewKey);
+      const reviewEntry = reviewed ? (_reviewData.get(reviewKey) || {}) : {};
+      const isRealtor = reviewed ? reviewEntry.isRealtor : undefined;
+      const confirmedRealtorName = reviewed ? reviewEntry.confirmedRealtorName : undefined;
 
       let status = '';
-      if (reviewed && isRealtor)  status = '<span class="mr-status-realtor">&#10003; Realtor</span>';
-      if (reviewed && !isRealtor) status = '<span class="mr-status-not">&#10007; Not Realtor</span>';
+      if (reviewed && isRealtor === true)  status = '<span class="mr-status-realtor">&#10003; Realtor</span>';
+      if (reviewed && isRealtor === false) status = '<span class="mr-status-not">&#10007; Not Realtor</span>';
 
-      // Pipeline lookup — only when confirmed as realtor
-      let pipelineChip = '';
-      if (reviewed && isRealtor) {
-        const nName = norm(name);
-        const matchingLeads = (state.leadsData || []).filter(row => {
-          const ref = String(getField(row, 'Referred By', 'referred by') || '').trim();
-          return norm(ref) === nName;
-        });
-        if (matchingLeads.length) {
-          const allTimeCount = matchingLeads.length;
-          let maxDate = null;
-          for (const row of matchingLeads) {
-            const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
-            if (d && (!maxDate || d > maxDate)) maxDate = d;
-          }
-          const bdOwner = (state.masterMap.get(nName) || {}).owner || '';
-          const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const dateLabel = maxDate ? MO[maxDate.getMonth()] + ' ' + maxDate.getDate() + ', ' + maxDate.getFullYear() : '';
-          const tip = allTimeCount + ' lead' + (allTimeCount !== 1 ? 's' : '') +
-            (dateLabel ? ' · Last: ' + dateLabel : '') +
-            (bdOwner ? ' · BD: ' + bdOwner : '');
-          pipelineChip = '<span class="mr-chip-pipeline" title="' + escHtml(tip) + '">In pipeline &#10003;</span>';
-        } else {
-          pipelineChip = '<span class="mr-chip-nopipeline">Not in pipeline</span>';
+      // Pipeline chip — hidden only when explicitly marked not-realtor
+      let pipelineRow = '';
+      if (!(reviewed && isRealtor === false)) {
+        const match = findRealtorMatch(name, m.host_name);
+        const mDateP = m.start_time
+          ? m.start_time.getFullYear() + '-' + String(m.start_time.getMonth() + 1).padStart(2, '0') + '-' + String(m.start_time.getDate()).padStart(2, '0')
+          : '';
+        const confirmBase =
+          ' data-participant="' + escHtml(name) + '"' +
+          ' data-email="' + escHtml(email) + '"' +
+          ' data-host="' + escHtml(m.host_name) + '"' +
+          ' data-meeting-id="' + escHtml(m.meeting_id) + '"' +
+          ' data-date="' + escHtml(mDateP) + '"';
+
+        let chip = '';
+        if (confirmedRealtorName) {
+          // Confirmed partial match — look up leads for that name
+          const cLeads = (state.leadsData || []).filter(row =>
+            norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) === norm(confirmedRealtorName)
+          );
+          const count = cLeads.length;
+          const dateLabel = _fmtLeadDate(_maxLeadDate(cLeads));
+          const tip = 'Confirmed match: ' + confirmedRealtorName + (count ? ' · ' + count + ' leads' : '') + (dateLabel ? ' · Last: ' + dateLabel : '');
+          chip = '<span class="mr-chip-pipeline mr-chip-pipeline-strong" title="' + escHtml(tip) + '">&#10003; In pipeline · ' + count + ' lead' + (count !== 1 ? 's' : '') + '</span>';
+
+        } else if (confirmedRealtorName === '') {
+          // Explicitly denied partial match
+          chip = '<span class="mr-chip-nopipeline">Not in pipeline</span>';
+
+        } else if (match.level === 'exact') {
+          const tip = match.ownerMatch ? 'Exact name match + BD matches host' : 'Exact name match in pipeline';
+          const cls = match.ownerMatch ? 'mr-chip-pipeline mr-chip-pipeline-strong' : 'mr-chip-pipeline';
+          const countStr = match.count + ' lead' + (match.count !== 1 ? 's' : '');
+          chip = '<span class="' + cls + '" title="' + escHtml(tip) + '">&#10003; In pipeline · ' + countStr + (match.ownerMatch ? ' · same BD' : '') + '</span>';
+
+        } else if (match.level === 'partial') {
+          const tip = match.ownerMatch ? 'Partial name match + BD matches host' : 'Partial name match found in pipeline';
+          const cls = match.ownerMatch ? 'mr-chip-partial mr-chip-partial-strong' : 'mr-chip-partial';
+          const countStr = match.count + ' lead' + (match.count !== 1 ? 's' : '');
+          const label = '~ Possible match: ' + escHtml(match.matchedName) + ' · ' + countStr + (match.ownerMatch ? ' · same BD' : '');
+          const cAttrs = confirmBase + ' data-confirmed-name="' + escHtml(match.matchedName) + '"';
+          const dAttrs = confirmBase + ' data-confirmed-name=""';
+          const confirmBtns =
+            '<div style="margin-top:3px;display:flex;gap:4px">' +
+            '<button class="mr-btn mr-btn-confirm-match" data-mr-action="confirm-match"' + cAttrs + '>&#10003; Same person</button>' +
+            '<button class="mr-btn mr-btn-deny-match" data-mr-action="confirm-match"' + dAttrs + '>&#10007; Different person</button>' +
+            '</div>';
+          chip = '<span class="' + cls + '" title="' + escHtml(tip) + '">' + label + '</span>' + confirmBtns;
+
+        } else if (reviewed && isRealtor === true) {
+          // Exact no-match and already marked as realtor
+          chip = '<span class="mr-chip-nopipeline">Not in pipeline</span>';
         }
+
+        if (chip) pipelineRow = '<div class="mr-pipeline-row">' + chip + '</div>';
       }
 
-      const mId = JSON.stringify(m.meeting_id);
       const mDate = m.start_time
         ? m.start_time.getFullYear() + '-' + String(m.start_time.getMonth() + 1).padStart(2, '0') + '-' + String(m.start_time.getDate()).padStart(2, '0')
         : '';
-      const safeN = JSON.stringify(name);
-      const safeE = JSON.stringify(email);
-      const safeH = JSON.stringify(m.host_name);
+      const dataAttrs =
+        ' data-mr-action="mark-participant"' +
+        ' data-participant="' + escHtml(name) + '"' +
+        ' data-email="' + escHtml(email) + '"' +
+        ' data-host="' + escHtml(m.host_name) + '"' +
+        ' data-meeting-id="' + escHtml(m.meeting_id) + '"' +
+        ' data-date="' + escHtml(mDate) + '"';
 
-      const actions = reviewed
-        ? '<button class="mr-btn" onclick="markMeetingParticipant(' + safeN + ',' + safeE + ',' + safeH + ',' + mId + ',' + JSON.stringify(mDate) + ',true)" title="Mark as Realtor">&#10003; Realtor</button>' +
-          '<button class="mr-btn" onclick="markMeetingParticipant(' + safeN + ',' + safeE + ',' + safeH + ',' + mId + ',' + JSON.stringify(mDate) + ',false)" title="Not a Realtor">&#10007; Not</button>'
-        : '<button class="mr-btn mr-btn-realtor" onclick="markMeetingParticipant(' + safeN + ',' + safeE + ',' + safeH + ',' + mId + ',' + JSON.stringify(mDate) + ',true)">&#10003; Realtor</button>' +
-          '<button class="mr-btn mr-btn-not" onclick="markMeetingParticipant(' + safeN + ',' + safeE + ',' + safeH + ',' + mId + ',' + JSON.stringify(mDate) + ',false)">&#10007; Not Realtor</button>';
+      let actions;
+      if (reviewed && isRealtor === true) {
+        actions = '<button class="mr-btn mr-btn-secondary"' + dataAttrs + ' data-is-realtor="false">&#10007; Mark as Not Realtor</button>';
+      } else if (reviewed && isRealtor === false) {
+        actions = '<button class="mr-btn mr-btn-secondary"' + dataAttrs + ' data-is-realtor="true">&#10003; Mark as Realtor</button>';
+      } else {
+        actions = '<button class="mr-btn mr-btn-realtor"' + dataAttrs + ' data-is-realtor="true">&#10003; Realtor</button>' +
+                  '<button class="mr-btn mr-btn-not"' + dataAttrs + ' data-is-realtor="false">&#10007; Not Realtor</button>';
+      }
 
       return '<div class="mr-participant">' +
-        '<span class="mr-participant-name">' + escHtml(name) + (email ? ' <span class="mr-participant-email">' + escHtml(email) + '</span>' : '') + '</span>' +
-        '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + status + pipelineChip + '<span class="mr-participant-actions">' + actions + '</span></span>' +
+        '<div class="mr-participant-top">' +
+          '<span class="mr-participant-name">' + escHtml(name) + (email ? ' <span class="mr-participant-email">' + escHtml(email) + '</span>' : '') + '</span>' +
+          '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + status + '<span class="mr-participant-actions">' + actions + '</span></span>' +
+        '</div>' +
+        pipelineRow +
         '</div>';
     };
 
-    return '<div class="mr-card">' +
+    const dncStyle = 'font-size:10px;font-weight:600;border:1.5px solid ' +
+      (isDNC ? '#D4A000' : '#D0DAF0') + ';border-radius:5px;padding:2px 8px;cursor:pointer;background:' +
+      (isDNC ? '#FFFBEB' : 'white') + ';color:' + (isDNC ? '#854D0E' : '#8899BB') + ';white-space:nowrap;flex-shrink:0';
+    const dncBtnHtml = '<button data-mr-action="toggle-no-count" data-meeting-id="' + escHtml(m.meeting_id) +
+      '" data-host="' + escHtml(m.host_name) + '" data-current="' + isDNC + '" style="' + dncStyle + '">' +
+      (isDNC ? '&#8856; No cuenta' : '&#8856; Marcar &ldquo;No cuenta&rdquo;') + '</button>';
+    const cardHtml = '<div class="mr-card" style="' + (isDNC ? 'border-color:#E8D59A' : '') + '">' +
       '<div class="mr-card-header">' +
         (m.topic ? '<div class="mr-card-topic">' + escHtml(m.topic) + '</div>' : '') +
-        '<div class="mr-card-meta">' +
-          '<span class="mr-meta-date">' + escHtml(dateStr) + '</span>' +
-          (timeStr ? ' <span class="mr-meta-time">' + escHtml(timeStr) + '</span>' : '') +
-          ' &nbsp;·&nbsp; <span class="mr-meta-host">' + escHtml(m.host_name) + '</span>' +
-          (m.duration ? ' &nbsp;·&nbsp; <span class="mr-meta-duration">' + m.duration + ' min</span>' : '') +
-          ' &nbsp;·&nbsp; <span class="mr-meta-count">' + participants.length + ' participant' + (participants.length !== 1 ? 's' : '') + '</span>' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
+          '<div class="mr-card-meta">' +
+            '<span class="mr-meta-date">' + escHtml(dateStr) + '</span>' +
+            (timeStr ? ' <span class="mr-meta-time">' + escHtml(timeStr) + '</span>' : '') +
+            ' &nbsp;·&nbsp; <span class="mr-meta-host">' + escHtml(m.host_name) + '</span>' +
+            (m.duration ? ' &nbsp;·&nbsp; <span class="mr-meta-duration">' + m.duration + ' min</span>' : '') +
+            ' &nbsp;·&nbsp; <span class="mr-meta-count">' + participants.length + ' participant' + (participants.length !== 1 ? 's' : '') + '</span>' +
+          '</div>' +
+          dncBtnHtml +
         '</div>' +
       '</div>' +
       (internals.length
@@ -281,9 +497,16 @@ export function renderMeetingsReview() {
           '</div>'
         : '') +
     '</div>';
-  }).join('');
+    return { isDNC, html: cardHtml };
+  });
 
-  content.innerHTML = html;
+  const activeHtml = rendered.filter(r => !r.isDNC).map(r => r.html).join('');
+  const dncItems   = rendered.filter(r =>  r.isDNC);
+  const dncSectionHtml = dncItems.length
+    ? '<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:#854D0E;padding:6px 2px;list-style:none;display:flex;align-items:center;gap:6px;user-select:none"><span>&#9654;</span> Follow-up meetings (not counted) &mdash; ' + dncItems.length + '</summary><div style="margin-top:8px">' + dncItems.map(r => r.html).join('') + '</div></details>'
+    : '';
+
+  content.innerHTML = activeHtml + dncSectionHtml;
 }
 
 function escHtml(s) {

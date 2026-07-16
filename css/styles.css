@@ -503,8 +503,17 @@ body{display:block}
 .mr-card{background:white;border:1px solid #E5EAF5;border-radius:12px;margin-bottom:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,26,64,.06)}
 .mr-card-header{background:#F5F8FF;border-bottom:1px solid #E5EAF5;padding:10px 16px}
 .mr-card-topic{font-size:12px;font-weight:700;color:var(--hs-navy);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mr-participant-top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px}
+.mr-pipeline-row{margin-top:4px;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .mr-chip-pipeline{display:inline-flex;align-items:center;background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;cursor:default;white-space:nowrap}
+.mr-chip-pipeline-strong{background:#A7F3D0;color:#064E3B}
+.mr-chip-partial{display:inline-flex;align-items:center;background:#FEF9C3;color:#854D0E;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;cursor:default}
+.mr-chip-partial-strong{background:#FDE68A;color:#78350F}
 .mr-chip-nopipeline{display:inline-flex;align-items:center;background:#F1F5F9;color:#64748B;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;cursor:default;white-space:nowrap}
+.mr-btn-confirm-match{background:#ECFDF5;border-color:#6EE7B7;color:#065F46;font-weight:700}
+.mr-btn-confirm-match:hover{background:#D1FAE5;border-color:#34D399}
+.mr-btn-deny-match{background:#FFF5F5;border-color:#FCA5A5;color:#991B1B;font-weight:700}
+.mr-btn-deny-match:hover{background:#FEE2E2;border-color:#F87171}
 .mr-card-meta{font-size:11px;color:#556080;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .mr-meta-date{font-weight:700;color:var(--hs-navy)}
 .mr-meta-time{color:#8899BB}
@@ -525,6 +534,8 @@ body{display:block}
 .mr-btn-realtor:hover{background:#D0EDE0;border-color:#085041}
 .mr-btn-not{background:#FFF0F0;border-color:#F5AAAA;color:#B83030}
 .mr-btn-not:hover{background:#FFE0E0;border-color:#CC3030}
+.mr-btn-secondary{background:white;border-color:#D0DAF0;color:#8899BB;font-weight:600}
+.mr-btn-secondary:hover{border-color:#9AAAC0;color:#556080}
 .mr-status-realtor{font-size:10px;font-weight:700;color:#085041;background:#E1F5EA;padding:2px 7px;border-radius:4px;white-space:nowrap}
 .mr-status-not{font-size:10px;font-weight:700;color:#B83030;background:#FFE8E8;padding:2px 7px;border-radius:4px;white-space:nowrap}
 .mr-badge-lo{font-size:9px;font-weight:700;font-family:'Barlow',sans-serif;padding:2px 6px;border-radius:3px;background:var(--hs-red);color:white;letter-spacing:.2px}

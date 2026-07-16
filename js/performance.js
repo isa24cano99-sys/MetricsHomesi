@@ -361,6 +361,7 @@ function calcZoom(ownerName, startDate, endDate) {
   for (const r of (state.zoomData || [])) {
     if (norm(r.host_name || '') !== nOwner) continue;
     if (!monthKeys.has(r.month_key)) continue;
+    if ((state.doNotCountMeetings || new Set()).has(r.meeting_id || '')) continue;
     const d = parseZoomTime(r.start_time);
     const key = (r.meeting_id || '') + '|' + (r.month_key || '') + '|' + (r.start_time || '');
     if (!meetingMap.has(key)) meetingMap.set(key, { rows: [], startTime: d || null, rawTime: r.start_time, duration: r.duration_minutes });
@@ -519,6 +520,39 @@ function getMeetingLOs(internalRows) {
   return names.length ? names.join(', ') : '—';
 }
 
+// Match participantName against state.leadsData — levels: 'exact', 'partial', 'none'
+function _perfMatchLeads(participantName) {
+  const SKIP = new Set(['de','la','el','the','del','las','los','y','e','a','of','en']);
+  const sigWords = n => norm(n).split(/\s+/).filter(w => w.length >= 3 && !SKIP.has(w));
+  const nPart = norm(participantName);
+  const leads = state.leadsData || [];
+
+  const exactLeads = leads.filter(row =>
+    norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) === nPart
+  );
+  if (exactLeads.length) return { level: 'exact', leads: exactLeads };
+
+  const partWords = sigWords(participantName);
+  if (partWords.length >= 2) {
+    const refGroups = new Map();
+    for (const row of leads) {
+      const ref = String(getField(row, 'Referred By', 'referred by') || '').trim();
+      if (!ref) continue;
+      const nRef = norm(ref);
+      if (!refGroups.has(nRef)) refGroups.set(nRef, { leads: [], originalName: ref });
+      refGroups.get(nRef).leads.push(row);
+    }
+    for (const { leads: rLeads, originalName } of refGroups.values()) {
+      const refWords = sigWords(originalName);
+      if (partWords.filter(w => refWords.includes(w)).length >= 2) {
+        return { level: 'partial', leads: rLeads, matchedName: originalName };
+      }
+    }
+  }
+
+  return { level: 'none' };
+}
+
 function buildZoomMeetingsModal(meetingsDetail, owner, label) {
   // Build meeting_id → topic lookup from raw zoomData
   const topicMap = new Map();
@@ -530,16 +564,52 @@ function buildZoomMeetingsModal(meetingsDetail, owner, label) {
     const sampleRow = state.zoomData.find(r => r.meeting_id === meetingId);
     console.log('[MR] sample zoom row for topic:', JSON.stringify(sampleRow));
   }
+  // Helper: date range across leads
+  const _leadDates = leads => {
+    let mn = null, mx = null;
+    for (const row of leads) {
+      const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+      if (d) { if (!mn || d < mn) mn = d; if (!mx || d > mx) mx = d; }
+    }
+    return { first: mn, last: mx };
+  };
+
+  // Helper: render one external name + pipeline chip
+  const _renderExt = name => {
+    const match = _perfMatchLeads(name);
+    if (match.level === 'none') {
+      return '<div style="margin-bottom:5px">' + name +
+        '<div style="display:inline-block;background:#F1F5F9;color:#64748B;font-size:9px;font-weight:600;padding:1px 6px;border-radius:10px;margin-left:4px">Not in pipeline</div>' +
+        '</div>';
+    }
+    const { first, last } = _leadDates(match.leads);
+    const count = match.leads.length;
+    const dateInfo = ' · first: ' + fmtDate(first) + ' · last: ' + fmtDate(last);
+    const countStr = count + ' lead' + (count !== 1 ? 's' : '');
+    if (match.level === 'exact') {
+      return '<div style="margin-bottom:5px"><span style="font-weight:700">' + name + '</span>' +
+        '<div style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">&#10003; In pipeline · ' + countStr + dateInfo + '</div>' +
+        '</div>';
+    }
+    // partial
+    return '<div style="margin-bottom:5px"><span style="font-weight:700">' + name + '</span>' +
+      '<div style="display:inline-block;background:#FEF9C3;color:#854D0E;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">~ Possible: ' + match.matchedName + ' · ' + countStr + dateInfo + '</div>' +
+      '</div>';
+  };
+
   const head = '<tr><th>Meeting Topic</th><th>Date &amp; Time</th><th>Duration (min)</th><th>Loan Officer</th><th>External Participants</th></tr>';
   const body = meetingsDetail.map(m => {
     const topic = topicMap.get(m.meetingId) || '—';
     const loStr = getMeetingLOs(m.internalRows);
+    const extHtml = m.externals.length
+      ? m.externals.map(_renderExt).join('')
+      : '—';
     return '<tr>' +
-      '<td style="font-size:11px;font-weight:600;color:var(--hs-navy);max-width:180px">' + topic + '</td>' +
+      '<td style="font-size:11px;font-weight:600;color:var(--hs-navy);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + topic + '">' + topic + '</td>' +
       '<td class="dt">' + fmtZoomDT(m.startTime) + '</td>' +
       '<td style="text-align:center">' + (m.duration || '—') + '</td>' +
       '<td style="font-size:11px;font-weight:600;color:var(--hs-navy)">' + loStr + '</td>' +
-      '<td style="font-size:11px">' + m.externals.join(', ') + '</td>' +
+      '<td style="font-size:11px;vertical-align:top">' + extHtml + '</td>' +
       '</tr>';
   }).join('');
   return {
