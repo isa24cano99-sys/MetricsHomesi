@@ -282,6 +282,52 @@ function pLabel(year, months0, today, isCompare) {
   return mStr + ' ' + year + (isCurrent ? ' (thru today)' : ' (full month)');
 }
 
+function calcCalls(ownerName, startDate, endDate) {
+  const nOwner = norm(ownerName);
+  const filtered = (state.callsData || []).filter(r => {
+    if (norm(r.assigned_to || '') !== nOwner) return false;
+    const d = parseDate(r.call_date);
+    return d && d >= startDate && d <= endDate;
+  });
+  const totalCalls = filtered.length;
+  const effectiveCalls = filtered.filter(r => r.effective === 1 || r.effective === 1.0).length;
+  const effectivenessRate = totalCalls > 0 ? Math.round((effectiveCalls / totalCalls * 100) * 10) / 10 : 0;
+  return { totalCalls, effectiveCalls, effectivenessRate };
+}
+
+function calcZoom(ownerName, startDate, endDate) {
+  const nOwner = norm(ownerName);
+  const meetingMap = new Map();
+  for (const r of (state.zoomData || [])) {
+    if (norm(r.host_name || '') !== nOwner) continue;
+    const d = parseDate(r.start_time);
+    if (!d || d < startDate || d > endDate) continue;
+    const key = (r.meeting_id || '') + '|' + (r.start_time || '');
+    if (!meetingMap.has(key)) meetingMap.set(key, { rows: [], startTime: d, rawTime: r.start_time, duration: r.duration_minutes });
+    meetingMap.get(key).rows.push(r);
+  }
+  const meetingsWithGuest = [];
+  for (const m of meetingMap.values()) {
+    const guests = m.rows.filter(r => r.is_guest === 'Yes');
+    if (guests.length) meetingsWithGuest.push({ ...m, guests });
+  }
+  const externalMap = new Map();
+  for (const m of meetingsWithGuest) {
+    for (const g of m.guests) {
+      const nn = norm(g.participant_name || '');
+      if (!nn) continue;
+      if (!externalMap.has(nn)) externalMap.set(nn, { name: g.participant_name || '', email: g.participant_email || '', meetingDate: m.startTime });
+    }
+  }
+  const externalsList = [...externalMap.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const meetingsDetail = meetingsWithGuest.map(m => ({
+    startTime: m.startTime,
+    duration: m.duration,
+    externals: [...new Map(m.guests.map(g => [norm(g.participant_name || ''), g.participant_name || ''])).values()].filter(Boolean)
+  })).sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+  return { meetingsWithExternal: meetingsWithGuest.length, uniqueExternals: externalMap.size, externalsList, meetingsDetail };
+}
+
 // ── Modal builders ──────────────────────────────────────────────────────────
 
 const _perfModalCache = new Map();
@@ -397,6 +443,51 @@ function buildHFModal(isHunting, realtors, owner, label) {
   };
 }
 
+function buildZoomMeetingsModal(meetingsDetail, owner, label) {
+  const head = '<tr><th>Date</th><th>Duration (min)</th><th>External Participants</th></tr>';
+  const body = meetingsDetail.map(m => {
+    const dStr = m.startTime ? (MS_SHORT[m.startTime.getUTCMonth()] + ' ' + m.startTime.getUTCDate() + ', ' + m.startTime.getUTCFullYear()) : '—';
+    return '<tr>' +
+      '<td class="dt">' + dStr + '</td>' +
+      '<td style="text-align:center">' + (m.duration || '—') + '</td>' +
+      '<td style="font-size:11px">' + m.externals.join(', ') + '</td>' +
+      '</tr>';
+  }).join('');
+  return {
+    title: owner + ' — Meetings with External',
+    sub: label + ' · ' + meetingsDetail.length + ' meeting' + (meetingsDetail.length !== 1 ? 's' : ''),
+    head, body,
+    csvData: [
+      ['Date', 'Duration (min)', 'External Participants'],
+      ...meetingsDetail.map(m => {
+        const dStr = m.startTime ? fmtDate(m.startTime) : '';
+        return [dStr, m.duration || '', m.externals.join('; ')];
+      })
+    ]
+  };
+}
+
+function buildZoomExternalsModal(externalsList, owner, label) {
+  const head = '<tr><th>Name</th><th>Email</th><th>Meeting Date</th></tr>';
+  const body = externalsList.map(e => {
+    const dStr = e.meetingDate ? (MS_SHORT[e.meetingDate.getUTCMonth()] + ' ' + e.meetingDate.getUTCDate() + ', ' + e.meetingDate.getUTCFullYear()) : '—';
+    return '<tr>' +
+      '<td style="font-weight:600">' + (e.name || '—') + '</td>' +
+      '<td style="font-size:11px;color:#667799">' + (e.email || '—') + '</td>' +
+      '<td class="dt">' + dStr + '</td>' +
+      '</tr>';
+  }).join('');
+  return {
+    title: owner + ' — Unique External Contacts',
+    sub: label + ' · ' + externalsList.length + ' contact' + (externalsList.length !== 1 ? 's' : ''),
+    head, body,
+    csvData: [
+      ['Name', 'Email', 'Meeting Date'],
+      ...externalsList.map(e => [e.name || '', e.email || '', e.meetingDate ? fmtDate(e.meetingDate) : ''])
+    ]
+  };
+}
+
 // ── Main render ─────────────────────────────────────────────────────────────
 
 export function renderPerformance() {
@@ -446,13 +537,17 @@ export function renderPerformance() {
   const mainHFBase = new Date(mainHFCutoff);
   mainHFBase.setUTCDate(mainHFBase.getUTCDate() - windowDays);
 
-  const mainLoan = calcLoanAmount(owner, start, end);
-  const mainPipe = calcPipelineActivity(owner, start, end);
-  const mainHF   = calcHuntingFarmingForWindow(owner, mainHFBase, mainHFCutoff);
-  const teamAvg  = calcTeamAvgHF(mainHFCutoff, mainHFBase);
+  const mainLoan  = calcLoanAmount(owner, start, end);
+  const mainPipe  = calcPipelineActivity(owner, start, end);
+  const mainHF    = calcHuntingFarmingForWindow(owner, mainHFBase, mainHFCutoff);
+  const teamAvg   = calcTeamAvgHF(mainHFCutoff, mainHFBase);
+  const mainCalls = calcCalls(owner, start, end);
+  const mainZoom  = calcZoom(owner, start, end);
 
-  const cmpLoan = hasCmp ? calcLoanAmount(owner, cmpBounds.start, cmpBounds.end) : null;
-  const cmpPipe = hasCmp ? calcPipelineActivity(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpLoan  = hasCmp ? calcLoanAmount(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpPipe  = hasCmp ? calcPipelineActivity(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpCalls = hasCmp ? calcCalls(owner, cmpBounds.start, cmpBounds.end) : null;
+  const cmpZoom  = hasCmp ? calcZoom(owner, cmpBounds.start, cmpBounds.end) : null;
 
   // Comparison H/F window: fully-past month uses last day; current month uses same day as main cutoff
   let cmpHF = null, cmpHFCutoff = null, cmpHFBase = null, cmpHFLbl = '';
@@ -491,18 +586,25 @@ export function renderPerformance() {
 
   // Populate modal cache
   _perfModalCache.clear();
-  _perfModalCache.set('mainLoan',    buildLoanModal(owner, start, end, mainLbl));
-  _perfModalCache.set('mainPipe',    buildPipelineModal(owner, start, end, mainLbl));
-  _perfModalCache.set('mainHunting', buildHFModal(true,  mainHF.huntingRealtors, owner, mainLbl));
-  _perfModalCache.set('mainFarming', buildHFModal(false, mainHF.farmingRealtors, owner, mainLbl));
+  _perfModalCache.set('mainLoan',          buildLoanModal(owner, start, end, mainLbl));
+  _perfModalCache.set('mainPipe',          buildPipelineModal(owner, start, end, mainLbl));
+  _perfModalCache.set('mainHunting',       buildHFModal(true,  mainHF.huntingRealtors, owner, mainLbl));
+  _perfModalCache.set('mainFarming',       buildHFModal(false, mainHF.farmingRealtors, owner, mainLbl));
+  _perfModalCache.set('mainZoomMeetings',  buildZoomMeetingsModal(mainZoom.meetingsDetail, owner, mainLbl));
+  _perfModalCache.set('mainZoomExternals', buildZoomExternalsModal(mainZoom.externalsList, owner, mainLbl));
   if (hasCmp) {
-    _perfModalCache.set('cmpLoan',    buildLoanModal(owner, cmpBounds.start, cmpBounds.end, cmpLbl));
-    _perfModalCache.set('cmpPipe',    buildPipelineModal(owner, cmpBounds.start, cmpBounds.end, cmpLbl));
+    _perfModalCache.set('cmpLoan',          buildLoanModal(owner, cmpBounds.start, cmpBounds.end, cmpLbl));
+    _perfModalCache.set('cmpPipe',          buildPipelineModal(owner, cmpBounds.start, cmpBounds.end, cmpLbl));
+    _perfModalCache.set('cmpZoomMeetings',  buildZoomMeetingsModal(cmpZoom.meetingsDetail, owner, cmpLbl));
+    _perfModalCache.set('cmpZoomExternals', buildZoomExternalsModal(cmpZoom.externalsList, owner, cmpLbl));
     if (cmpHF) {
       _perfModalCache.set('cmpHunting', buildHFModal(true,  cmpHF.huntingRealtors, owner, cmpLbl));
       _perfModalCache.set('cmpFarming', buildHFModal(false, cmpHF.farmingRealtors, owner, cmpLbl));
     }
   }
+
+  const callsRateColor = mainCalls.effectivenessRate > 20 ? 'green' : mainCalls.effectivenessRate >= 10 ? 'yellow' : 'red';
+  const cmpCallsRateColor = cmpCalls ? (cmpCalls.effectivenessRate > 20 ? 'green' : cmpCalls.effectivenessRate >= 10 ? 'yellow' : 'red') : 'red';
 
   content.innerHTML =
     '<div class="perf-owner-heading">' + owner + '</div>' +
@@ -513,6 +615,84 @@ export function renderPerformance() {
     '</div>' +
 
     '<div class="perf-kpi-grid">' +
+
+    // ── Card 0: Activity ──
+    '<div class="perf-kpi-card">' +
+      '<div class="perf-card-tag">ACTIVITY</div>' +
+      '<div class="perf-main-section">' +
+        '<div class="perf-act-cols">' +
+          '<div class="perf-act-col">' +
+            '<div class="perf-act-col-title">CALLS</div>' +
+            '<div class="perf-act-big">' + mainCalls.totalCalls + '</div>' +
+            '<div class="perf-act-sub">total calls</div>' +
+            '<div class="perf-act-metrics">' +
+              '<div class="perf-act-metric-item">' +
+                '<div class="perf-act-metric-val">' + mainCalls.effectiveCalls + '</div>' +
+                '<div class="perf-act-metric-lbl">effective calls</div>' +
+              '</div>' +
+              '<div class="perf-act-metric-item">' +
+                '<div class="perf-rate-chip perf-rate-' + callsRateColor + '">' + mainCalls.effectivenessRate + '%</div>' +
+                '<div class="perf-act-metric-lbl">effectiveness rate</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="perf-act-divider"></div>' +
+          '<div class="perf-act-col">' +
+            '<div class="perf-act-col-title">MEETINGS</div>' +
+            '<button class="perf-clickable-val" data-perf-modal="mainZoomMeetings">' + mainZoom.meetingsWithExternal + '</button>' +
+            '<div class="perf-act-sub">meetings with external</div>' +
+            '<div class="perf-act-metrics">' +
+              '<div class="perf-act-metric-item">' +
+                '<button class="perf-act-metric-btn" data-perf-modal="mainZoomExternals">' + mainZoom.uniqueExternals + '</button>' +
+                '<div class="perf-act-metric-lbl">unique realtors contacted</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      (hasCmp
+        ? '<div class="perf-cmp-section">' +
+            '<div class="perf-cmp-vs-hdr">VS ' + cmpLbl.toUpperCase() + '</div>' +
+            '<div class="perf-act-cols">' +
+              '<div class="perf-act-col">' +
+                '<div class="perf-act-col-title">CALLS</div>' +
+                '<div class="perf-cmp-big-val">' + cmpCalls.totalCalls + '</div>' +
+                '<div class="perf-act-sub" style="margin-bottom:6px">total calls</div>' +
+                '<div class="perf-act-metrics">' +
+                  '<div class="perf-act-metric-item">' +
+                    '<div class="perf-act-metric-val" style="font-size:18px;color:#667799">' + cmpCalls.effectiveCalls + '</div>' +
+                    '<div class="perf-act-metric-lbl">effective</div>' +
+                  '</div>' +
+                  '<div class="perf-act-metric-item">' +
+                    '<div class="perf-rate-chip perf-rate-' + cmpCallsRateColor + '" style="font-size:12px">' + cmpCalls.effectivenessRate + '%</div>' +
+                    '<div class="perf-act-metric-lbl">rate</div>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="perf-change-row" style="margin-top:8px">' +
+                  '<span class="perf-change-lbl">CHANGE</span>' +
+                  dChipInt(mainCalls.totalCalls, cmpCalls.totalCalls) +
+                '</div>' +
+              '</div>' +
+              '<div class="perf-act-divider"></div>' +
+              '<div class="perf-act-col">' +
+                '<div class="perf-act-col-title">MEETINGS</div>' +
+                '<button class="perf-cmp-big-val perf-cmp-clickable" data-perf-modal="cmpZoomMeetings">' + cmpZoom.meetingsWithExternal + '</button>' +
+                '<div class="perf-act-sub" style="margin-bottom:6px">meetings w/ external</div>' +
+                '<div class="perf-act-metrics">' +
+                  '<div class="perf-act-metric-item">' +
+                    '<button class="perf-act-metric-btn" style="font-size:18px;color:#667799" data-perf-modal="cmpZoomExternals">' + cmpZoom.uniqueExternals + '</button>' +
+                    '<div class="perf-act-metric-lbl">unique realtors</div>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="perf-change-row" style="margin-top:8px">' +
+                  '<span class="perf-change-lbl">CHANGE</span>' +
+                  dChipInt(mainZoom.meetingsWithExternal, cmpZoom.meetingsWithExternal) +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        : '') +
+    '</div>' +
 
     // ── Card 1: B2C Goal ──
     '<div class="perf-kpi-card">' +

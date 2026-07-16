@@ -18,5 +18,7 @@ export const state = {
   loMasterMap: new Map(),
   loCurrentMode: 'active',
   loSortCol: 'cnt',
-  loSortDir: -1
+  loSortDir: -1,
+  callsData: [],
+  zoomData: []
 };

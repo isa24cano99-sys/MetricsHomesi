@@ -1,5 +1,6 @@
 import { SB_URL, SB_KEY } from './config.js';
 import { getField, parseDate, fmtDB, norm } from './utils.js';
+import { state } from './state.js';
 
 export async function sbFetch(path, opts = {}) {
   const headers = {
@@ -160,6 +161,34 @@ export async function uploadZoomMeetings(data, monthKey, fileName, { onProgress 
   await sbFetch('upload_meta', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify({ file_type: 'zoom_meetings', file_name: fileName, row_count: rows.length }) });
   onProgress('zoom', 95);
   return rows.length;
+}
+
+export async function loadCallsData() {
+  const all = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const page = await sbFetch('calls?select=call_date,assigned_to,effective&limit=' + pageSize + '&offset=' + from + '&order=id.asc');
+    if (!page || !page.length) break;
+    all.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+  state.callsData = all;
+}
+
+export async function loadZoomData() {
+  const all = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const page = await sbFetch('zoom_meetings?select=*&limit=' + pageSize + '&offset=' + from + '&order=id.asc');
+    if (!page || !page.length) break;
+    all.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+  state.zoomData = all;
 }
 
 export async function loadDataFromSupabase({ onStatus = () => {} } = {}) {

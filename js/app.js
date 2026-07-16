@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { bus } from './events.js';
-import { sbFetch, uploadToSupabase, uploadCalls, uploadLoReference, uploadZoomMeetings } from './supabase.js';
+import { sbFetch, uploadToSupabase, uploadCalls, uploadLoReference, uploadZoomMeetings, loadCallsData, loadZoomData } from './supabase.js';
 import { runCalc } from './calc.js';
 import { setMode, renderTable, populateFilters, renderSummary, srt, onModeSelect, showTab } from './ui.js';
 import { renderScorecard, refreshScorecard, clearScorecardFilters, renderRankings } from './scorecard.js';
@@ -321,6 +321,8 @@ async function initApp() {
     await loadLoReferenceMap();
     await loadLoMasterMap();
     await loadKpiSettings();
+    try { await loadCallsData(); } catch (_) {}
+    try { await loadZoomData(); } catch (_) {}
 
     if (hasData) {
       setStatus('ok', '✅ Supabase connected — saved data available. Press Calculate to view results.');
