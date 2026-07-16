@@ -113,12 +113,17 @@ export async function uploadLoReference(data, fileName, { onProgress = () => {},
     await sbFetch('lo_reference?alias=not.is.null', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
   } catch (e) { console.log('lo_reference delete:', e.message); }
   onProgress('loref', 30);
-  const rows = data.map(row => ({
+  const raw = data.map(row => ({
     alias: norm(String(getField(row, 'Name (original name)', 'name (original name)') || '').trim()),
     canonical_name: String(getField(row, 'LO', 'lo') || '').trim() || null
   })).filter(r => r.alias);
-  if (rows.length) {
-    await sbFetch('lo_reference', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows) });
+  const rows = [...new Map(raw.map(r => [r.alias, r])).values()];
+  const batchSize = 200;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batchNum = Math.floor(i / batchSize) + 1;
+    onStatus('load', '⏳ Uploading LO reference: batch ' + batchNum + ' of ' + Math.ceil(rows.length / batchSize) + ' (' + rows.length + ' rows)...');
+    await sbFetch('lo_reference', { method: 'POST', prefer: 'return=minimal', body: JSON.stringify(rows.slice(i, i + batchSize)) });
+    onProgress('loref', 30 + Math.round((i / rows.length) * 60));
   }
   onStatus('load', '⏳ Saving LO reference metadata…');
   await sbFetch('upload_meta?file_type=eq.lo_reference', { method: 'DELETE', prefer: 'return=minimal', headers: { 'Prefer': 'return=minimal' } });
