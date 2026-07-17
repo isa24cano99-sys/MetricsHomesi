@@ -66,7 +66,7 @@ function _maxDate(rows) {
 }
 
 // Returns { level: 'found'|'salesforce'|'none'|'skip', ...fields }
-function findRealtorMatch(participantName, hostName) {
+export function findRealtorMatch(participantName, hostName) {
   const rom = state.realtorOwnerMap || new Map();
   const leads = state.leadsData || [];
   const nPart = norm(participantName);

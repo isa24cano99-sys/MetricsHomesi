@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { norm, parseDate, fmtDate, getField } from './utils.js';
 import { sbFetch } from './supabase.js';
 import { openModal } from './modal.js';
+import { findRealtorMatch } from './meetings-review.js';
 
 export const kpiGoals = { loanAmount: 700000, pipelineOpps: 10, loanCountGoal: 2 };
 
@@ -574,27 +575,35 @@ function buildZoomMeetingsModal(meetingsDetail, owner, label) {
     return { first: mn, last: mx };
   };
 
-  // Helper: render one external name + pipeline chip
-  const _renderExt = name => {
-    const match = _perfMatchLeads(name);
-    if (match.level === 'none') {
-      return '<div style="margin-bottom:5px">' + name +
-        '<div style="display:inline-block;background:#F1F5F9;color:#64748B;font-size:9px;font-weight:600;padding:1px 6px;border-radius:10px;margin-left:4px">Not in pipeline</div>' +
-        '</div>';
+  // Helper: render one external name + pipeline chip using findRealtorMatch
+  // Returns null for lo/not_realtor participants (filtered out by caller)
+  const _renderExt = (name, hostName) => {
+    const pKey = norm(name);
+    const savedLabel = (state.zoomParticipantLabels || new Map()).get(pKey);
+
+    // Skip LO and not-realtor — they appear in the internal column or are irrelevant
+    if (savedLabel && (savedLabel.label === 'lo' || savedLabel.label === 'not_realtor')) return null;
+
+    // Display name: canonical if saved, original otherwise
+    const displayName = (savedLabel && savedLabel.canonical_name) ? savedLabel.canonical_name : name;
+    const nameHtml = '<span style="font-weight:700">' + displayName + '</span>' +
+      (displayName !== name ? '<br><span style="color:#94A3B8;font-size:9px">' + name + '</span>' : '');
+
+    const match = findRealtorMatch(name, hostName);
+    let chipHtml;
+    if (match.level === 'found') {
+      const countStr = match.count + ' lead' + (match.count !== 1 ? 's' : '');
+      const dateInfo = (match.firstDate || match.lastDate)
+        ? ' · first: ' + fmtDate(match.firstDate) + (match.lastDate ? ' · last: ' + fmtDate(match.lastDate) : '')
+        : '';
+      chipHtml = '<div style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">&#10003; ' + match.canonicalName + ' · ' + countStr + dateInfo + '</div>';
+    } else if (match.level === 'salesforce') {
+      chipHtml = '<div style="display:inline-block;background:#EBF4FF;color:#1E4D7B;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">In Salesforce · no leads yet</div>';
+    } else {
+      chipHtml = '<div style="display:inline-block;background:#F1F5F9;color:#64748B;font-size:9px;font-weight:600;padding:1px 6px;border-radius:10px;margin-left:4px">Not in pipeline</div>';
     }
-    const { first, last } = _leadDates(match.leads);
-    const count = match.leads.length;
-    const dateInfo = ' · first: ' + fmtDate(first) + ' · last: ' + fmtDate(last);
-    const countStr = count + ' lead' + (count !== 1 ? 's' : '');
-    if (match.level === 'exact') {
-      return '<div style="margin-bottom:5px"><span style="font-weight:700">' + name + '</span>' +
-        '<div style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">&#10003; In pipeline · ' + countStr + dateInfo + '</div>' +
-        '</div>';
-    }
-    // partial
-    return '<div style="margin-bottom:5px"><span style="font-weight:700">' + name + '</span>' +
-      '<div style="display:inline-block;background:#FEF9C3;color:#854D0E;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px">~ Possible: ' + match.matchedName + ' · ' + countStr + dateInfo + '</div>' +
-      '</div>';
+
+    return '<div style="margin-bottom:5px">' + nameHtml + chipHtml + '</div>';
   };
 
   const head = '<tr><th>Meeting Topic</th><th>Date &amp; Time</th><th>Duration (min)</th><th>Loan Officer</th><th>External Participants</th></tr>';
@@ -602,7 +611,7 @@ function buildZoomMeetingsModal(meetingsDetail, owner, label) {
     const topic = topicMap.get(m.meetingId) || '—';
     const loStr = getMeetingLOs(m.internalRows);
     const extHtml = m.externals.length
-      ? m.externals.map(_renderExt).join('')
+      ? m.externals.map(name => _renderExt(name, owner)).filter(Boolean).join('') || '—'
       : '—';
     return '<tr>' +
       '<td style="font-size:11px;font-weight:600;color:var(--hs-navy);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + topic + '">' + topic + '</td>' +
