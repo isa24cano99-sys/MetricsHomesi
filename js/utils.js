@@ -26,7 +26,13 @@ export function fmtNow() {
 }
 
 export function norm(s) {
-  return s == null ? '' : String(s).trim().toLowerCase().replace(/\s+/g, ' ');
+  if (s == null) return '';
+  return String(s)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }
 
 export function getField(row, ...names) {

@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { bus } from './events.js';
-import { sbFetch, uploadToSupabase, uploadCalls, uploadLoReference, uploadZoomMeetings, loadCallsData, loadZoomData } from './supabase.js';
+import { sbFetch, uploadToSupabase, uploadCalls, uploadLoReference, uploadZoomMeetings, loadCallsData, loadZoomData, loadDataFromSupabase } from './supabase.js';
 import { runCalc } from './calc.js';
 import { setMode, renderTable, populateFilters, renderSummary, srt, onModeSelect, showTab } from './ui.js';
 import { renderScorecard, refreshScorecard, clearScorecardFilters, renderRankings } from './scorecard.js';
@@ -19,7 +19,9 @@ import { renderLoAssignCards, clearLoAssignFilters, confirmLoAssign, unconfirmLo
 import { initLoPipeline, renderLoPipeline, renderLoCwSection, clearLoPipelineFilters, clearLoCwFilters } from './lo-pipeline.js';
 import { initLoTrends, renderLoTrends } from './lo-trends.js';
 import { initLoPerformance, renderLoPerformance } from './lo-performance.js';
-import { initMeetingsReview, renderMeetingsReview, clearMrFilters, markMeetingParticipant, loadMeetingReviews } from './meetings-review.js';
+import { initMeetingsReview, renderMeetingsReview, clearMrFilters, markMeetingParticipant, loadMeetingReviews, saveParticipantLabel, toggleDoesNotCount } from './meetings-review.js';
+
+let _zoomLoading = false;
 
 // card-id suffix for each file type (used for progress bars and status labels)
 const TYPE_TO_CARD = {
@@ -172,6 +174,11 @@ function toggleSidebar() {
   localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
 }
 
+function _refreshMeetingsIfOpen() {
+  const el = document.getElementById('view-meetings-review');
+  if (el && !el.classList.contains('hidden')) initMeetingsReview();
+}
+
 function showView(viewId) {
   ['view-bd-metrics', 'view-data-upload', 'view-lo-metrics', 'view-meetings-review'].forEach(id => {
     const el = document.getElementById(id);
@@ -180,7 +187,14 @@ function showView(viewId) {
   document.querySelectorAll('.sidebar-item[data-view]').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-view') === viewId);
   });
-  if (viewId === 'meetings-review') initMeetingsReview();
+  if (viewId === 'meetings-review') {
+    if (_zoomLoading) {
+      const content = document.getElementById('mr-content');
+      if (content) content.innerHTML = '<div class="empty-state" style="display:flex;align-items:center;gap:10px;padding:32px"><span style="font-size:18px">&#9203;</span><span>Loading meetings…</span></div>';
+    } else {
+      initMeetingsReview();
+    }
+  }
 }
 
 async function saveLoList() {
@@ -340,9 +354,17 @@ async function initApp() {
     state.changeLog = (logs || []).map(l => ({ date: l.change_date, realtor: l.realtor, from: l.from_assignment, to: l.to_assignment }));
 
     try {
-      const romRows = await sbFetch('realtor_owner_map?select=realtor_key,owner');
-      for (const r of (romRows || [])) {
-        if (r.realtor_key && r.owner) state.realtorOwnerMap.set(r.realtor_key, r.owner);
+      const PAGE = 1000;
+      let offset = 0;
+      state.realtorOwnerMap = new Map();
+      while (true) {
+        const rows = await sbFetch('realtor_owner_map?select=realtor_key,owner&limit=' + PAGE + '&offset=' + offset);
+        if (!rows || !rows.length) break;
+        for (const r of rows) {
+          if (r.realtor_key && r.owner) state.realtorOwnerMap.set(r.realtor_key, r.owner);
+        }
+        if (rows.length < PAGE) break;
+        offset += PAGE;
       }
     } catch (_) {}
 
@@ -350,8 +372,35 @@ async function initApp() {
     await loadLoMasterMap();
     await loadKpiSettings();
     try { await loadCallsData(); } catch (_) {}
-    try { await loadZoomData(); } catch (_) {}
+    _zoomLoading = true;
+    loadZoomData()
+      .then(() => { _zoomLoading = false; _refreshMeetingsIfOpen(); })
+      .catch(() => { _zoomLoading = false; _refreshMeetingsIfOpen(); });
     try { await loadMeetingReviews(); } catch (_) {}
+    try {
+      const PAGE = 1000;
+      let offset = 0;
+      state.zoomParticipantLabels = new Map();
+      while (true) {
+        const rows = await sbFetch('zoom_participant_labels?select=participant_key,label,canonical_name&limit=' + PAGE + '&offset=' + offset);
+        if (!rows || !rows.length) break;
+        for (const r of rows) {
+          if (r.participant_key) state.zoomParticipantLabels.set(r.participant_key, { label: r.label, canonical_name: r.canonical_name || null });
+        }
+        if (rows.length < PAGE) break;
+        offset += PAGE;
+      }
+    } catch (_) {}
+
+    try {
+      if (!state.leadsData || !state.leadsData.length) {
+        const { leadsData, oppData } = await loadDataFromSupabase();
+        state.leadsData = leadsData;
+        state.oppData = oppData;
+      }
+    } catch (e) {
+      console.warn('[initApp] leadsData preload failed:', e.message);
+    }
 
     if (hasData) {
       setStatus('ok', '✅ Supabase connected — saved data available. Press Calculate to view results.');
@@ -376,7 +425,7 @@ Object.assign(window, {
   renderPipeline, renderClosedWon, clearPipelineFilters, clearClosedWonFilters, showPipelineStageDetail, renderTrends,
   renderPerformance, saveKpiSettings, saveOwnersList,
   toggleSidebar, showView, saveLoList, syncLoList,
-  renderMeetingsReview, clearMrFilters, markMeetingParticipant,
+  renderMeetingsReview, clearMrFilters, markMeetingParticipant, saveParticipantLabel, toggleDoesNotCount,
   // LO Metrics
   runLoCalc, renderLoTable, setLoMode, showLoTab, srtLo, onLoModeSelect,
   renderLoScorecard, refreshLoScorecard, clearLoScorecardFilters,

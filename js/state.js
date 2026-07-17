@@ -21,5 +21,6 @@ export const state = {
   loSortDir: -1,
   callsData: [],
   zoomData: [],
-  doNotCountMeetings: new Set()
+  doNotCountMeetings: new Set(),
+  zoomParticipantLabels: new Map()
 };

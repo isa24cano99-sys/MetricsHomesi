@@ -2,6 +2,19 @@ import { state } from './state.js';
 import { norm, getField, parseDate } from './utils.js';
 import { sbFetch } from './supabase.js';
 
+// ── Internal state ────────────────────────────────────────────────────────────
+// "participantName|meetingId" → { isRealtor: bool, confirmedRealtorName: string|null }
+const _reviewData = new Map();
+// norm(participantName) after first "Not Realtor" click — shows LO prompt
+const _pendingLOPrompt = new Set();
+let _delegationSetup = false;
+
+// ── Private utilities ─────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function parseZoomTime(s) {
   if (!s) return null;
   const d = new Date(s);
@@ -11,116 +24,251 @@ function parseZoomTime(s) {
   return null;
 }
 
-function _maxLeadDate(leads) {
+const _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDate(d) {
+  if (!d) return '';
+  return _MO[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + d.getUTCFullYear();
+}
+
+function isDeviceName(name) {
+  const nn = norm(name);
+  const deviceWords = ['iphone','ipad','android','galaxy','samsung','pixel','tablet','fold',
+    'phone','kindle','surface','chromebook'];
+  if (deviceWords.some(w => nn.includes(w))) return true;
+  if (!name.includes(' ') && name.trim().length > 8) return true;
+  return false;
+}
+
+// ── Match logic ───────────────────────────────────────────────────────────────
+
+const _SKIP = new Set(['de','la','el','the','del','las','los','y','e','a','of','en']);
+
+function _titleCase(s) {
+  return s.replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function _minDate(rows) {
+  let min = null;
+  for (const row of rows) {
+    const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+    if (d && (!min || d < min)) min = d;
+  }
+  return min;
+}
+
+function _maxDate(rows) {
   let max = null;
-  for (const row of leads) {
+  for (const row of rows) {
     const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
     if (d && (!max || d > max)) max = d;
   }
   return max;
 }
 
-function _fmtLeadDate(d) {
-  if (!d) return '';
-  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return MO[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
-}
-
-// Returns { level: 'exact'|'partial'|'none', count, lastDate, ownerMatch, leads, matchedName? }
+// Returns { level: 'found'|'salesforce'|'none'|'skip', ...fields }
 function findRealtorMatch(participantName, hostName) {
-  const SKIP = new Set(['de','la','el','the','del','las','los','y','e','a','of','en']);
-  const sigWords = n => norm(n).split(/\s+/).filter(w => w.length >= 3 && !SKIP.has(w));
+  const rom = state.realtorOwnerMap || new Map();
+  const leads = state.leadsData || [];
   const nPart = norm(participantName);
   const nHost = norm(hostName || '');
-  const leads = state.leadsData || [];
 
-  const exactLeads = leads.filter(row =>
-    norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) === nPart
-  );
-  if (exactLeads.length) {
-    const ownerMatch = exactLeads.some(row =>
-      norm(String(getField(row, 'Lead Owner', 'lead owner') || '').trim()) === nHost
-    );
-    return { level: 'exact', leads: exactLeads, count: exactLeads.length, lastDate: _maxLeadDate(exactLeads), ownerMatch };
+  // PASO 1: saved label
+  const saved = (state.zoomParticipantLabels || new Map()).get(nPart);
+  if (saved && (saved.label === 'not_realtor' || saved.label === 'lo')) {
+    return { level: 'skip' };
   }
+  let searchName = participantName;
+  if (saved && saved.canonical_name) searchName = saved.canonical_name;
+  const nSearch = norm(searchName);
 
-  const partWords = sigWords(participantName);
-  if (partWords.length >= 2) {
-    const refGroups = new Map();
-    for (const row of leads) {
-      const ref = String(getField(row, 'Referred By', 'referred by') || '').trim();
-      if (!ref) continue;
-      const nRef = norm(ref);
-      if (!refGroups.has(nRef)) refGroups.set(nRef, { leads: [], originalName: ref });
-      refGroups.get(nRef).leads.push(row);
-    }
-    for (const { leads: rLeads, originalName } of refGroups.values()) {
-      const refWords = sigWords(originalName);
-      if (partWords.filter(w => refWords.includes(w)).length >= 2) {
-        const ownerMatch = rLeads.some(row =>
-          norm(String(getField(row, 'Lead Owner', 'lead owner') || '').trim()) === nHost
-        );
-        return { level: 'partial', leads: rLeads, count: rLeads.length, lastDate: _maxLeadDate(rLeads), ownerMatch, matchedName: originalName };
+  // PASO 2: find realtorKey in map (exact → partial word match)
+  let realtorKey = null;
+  if (rom.has(nSearch)) {
+    realtorKey = nSearch;
+  } else {
+    const pWds = nSearch.split(/\s+/).filter(w => w.length >= 3 && !_SKIP.has(w));
+    if (pWds.length >= 1) {
+      for (const rk of rom.keys()) {
+        const kWds = rk.split(/\s+/).filter(w => w.length >= 3 && !_SKIP.has(w));
+        if (pWds.every(w => kWds.includes(w))) { realtorKey = rk; break; }
       }
     }
   }
+  if (!realtorKey) return { level: 'none' };
 
-  return { level: 'none' };
+  const canonicalName = _titleCase(realtorKey);
+  const owner = rom.get(realtorKey) || '';
+
+  // PASO 3: count leads via realtorKey → norm(Referred By)
+  const matchedLeads = leads.filter(row =>
+    norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) === realtorKey
+  );
+
+  if (matchedLeads.length > 0) {
+    const ownerMatch = matchedLeads.some(row =>
+      norm(String(getField(row, 'Lead Owner', 'lead owner') || '').trim()) === nHost
+    );
+    return {
+      level: 'found',
+      count: matchedLeads.length,
+      firstDate: _minDate(matchedLeads),
+      lastDate: _maxDate(matchedLeads),
+      ownerMatch,
+      canonicalName,
+      owner
+    };
+  }
+
+  return { level: 'salesforce', canonicalName, owner };
 }
 
-/*
-  Supabase table required:
-  CREATE TABLE meeting_participants_review (
-    id BIGSERIAL PRIMARY KEY,
-    participant_name TEXT NOT NULL,
-    participant_email TEXT,
-    meeting_id TEXT NOT NULL,
-    meeting_date DATE,
-    host_name TEXT,
-    is_realtor BOOLEAN,
-    reviewed_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE(participant_name, meeting_id)
-  );
-*/
+// ── Manual search ─────────────────────────────────────────────────────────────
 
-// key: "participantName|meetingId" → { isRealtor: bool, confirmedRealtorName: string|null }
-// confirmedRealtorName: null = not decided, '' = denied (different person), 'Name' = confirmed match
-const _reviewData = new Map();
+function searchInDatabase(searchText) {
+  const words = norm(searchText).split(/\s+/).filter(w => w.length >= 3 && !_SKIP.has(w));
+  if (!words.length) return [];
 
-let _delegationSetup = false;
+  const exactResults = [];
+  const partialResults = [];
+  const leads = state.leadsData || [];
+
+  for (const [rk, ownerValue] of (state.realtorOwnerMap || new Map()).entries()) {
+    const exactPass = words.every(w => rk.includes(w));
+    const partialPass = !exactPass && words.some(w => w.length >= 4 && rk.split(' ').some(rkW => rkW.includes(w)));
+    if (!exactPass && !partialPass) continue;
+
+    const owner = typeof ownerValue === 'string' ? ownerValue : (ownerValue?.owner || '');
+    const displayName = _titleCase(rk);
+    let count = 0, lastDate = null;
+    for (const row of leads) {
+      if (norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) !== rk) continue;
+      count++;
+      const d = parseDate(getField(row, 'Created Date', 'created date', 'Create Date', 'create date'));
+      if (d && (!lastDate || d > lastDate)) lastDate = d;
+    }
+    const entry = { rk, displayName, owner, count, lastDate, matchType: exactPass ? 'exact' : 'partial' };
+    if (exactPass) exactResults.push(entry); else partialResults.push(entry);
+  }
+
+  const byCount = (a, b) => b.count - a.count;
+  exactResults.sort(byCount);
+  partialResults.sort(byCount);
+  return [...exactResults, ...partialResults].slice(0, 8);
+}
+
+// ── Search UI ─────────────────────────────────────────────────────────────────
+
+function _runSearch(container, participantName) {
+  const inputEl = container && container.querySelector('.mr-pipeline-input');
+  const searchText = (inputEl ? inputEl.value : '').trim();
+  if (!searchText) return;
+  const resultEl = container && container.querySelector('.mr-pipeline-result');
+  if (!resultEl) return;
+
+  const results = searchInDatabase(searchText);
+  if (!results.length) {
+    resultEl.innerHTML = '<span style="color:#C0392B;font-size:10px">No match found for &ldquo;' + escHtml(searchText) + '&rdquo;</span>';
+    return;
+  }
+
+  const items = results.map(r => {
+    const isPartial = r.matchType === 'partial';
+    const countPart = r.count > 0
+      ? r.count + ' lead' + (r.count !== 1 ? 's' : '') + (r.lastDate ? ' &middot; last: ' + fmtDate(r.lastDate) : '')
+      : 'no leads yet';
+    const prefix = isPartial
+      ? '<span style="color:#AABBCC;font-style:italic;margin-right:4px">possible:</span>'
+      : '';
+    const lbl = prefix +
+      '<span style="color:' + (isPartial ? '#6677AA' : 'inherit') + '">' + escHtml(r.displayName) + '</span>' +
+      ' <span style="color:#8899BB">&middot; Owner: ' + escHtml(r.owner) + ' &middot; ' + countPart + '</span>';
+    const btnStyle = 'display:block;width:100%;text-align:left;font-size:10px;padding:4px 8px;margin-bottom:2px' +
+      (isPartial ? ';background:#F5F7FA;border-top:1px dashed #D0DAF0' : '');
+    return '<button class="mr-btn" style="' + btnStyle + '" ' +
+      'data-mr-action="confirm-search-match" ' +
+      'data-participant="' + escHtml(participantName) + '" ' +
+      'data-canonical="' + escHtml(r.displayName) + '" ' +
+      'data-realtor-key="' + escHtml(r.rk) + '">' + lbl + '</button>';
+  }).join('');
+  resultEl.innerHTML = '<div style="border:1px solid #D0DAF0;border-radius:4px;padding:4px;background:#F8FAFF">' + items + '</div>';
+}
+
+// ── Event delegation ──────────────────────────────────────────────────────────
+
 function setupDelegation() {
   if (_delegationSetup) return;
   _delegationSetup = true;
+
   document.addEventListener('click', e => {
     const markBtn = e.target.closest('[data-mr-action="mark-participant"]');
     if (markBtn) {
-      const name      = markBtn.dataset.participant || '';
-      const email     = markBtn.dataset.email || '';
-      const host      = markBtn.dataset.host || '';
-      const meetingId = markBtn.dataset.meetingId || '';
-      const date      = markBtn.dataset.date || '';
-      const isRealtor = markBtn.dataset.isRealtor === 'true';
-      markMeetingParticipant(name, email, host, meetingId, date, isRealtor);
+      markMeetingParticipant(
+        markBtn.dataset.participant || '',
+        markBtn.dataset.email || '',
+        markBtn.dataset.host || '',
+        markBtn.dataset.meetingId || '',
+        markBtn.dataset.date || '',
+        markBtn.dataset.isRealtor === 'true'
+      );
       return;
     }
-    const confirmBtn = e.target.closest('[data-mr-action="confirm-match"]');
-    if (confirmBtn) {
-      const name          = confirmBtn.dataset.participant || '';
-      const email         = confirmBtn.dataset.email || '';
-      const host          = confirmBtn.dataset.host || '';
-      const meetingId     = confirmBtn.dataset.meetingId || '';
-      const date          = confirmBtn.dataset.date || '';
-      const confirmedName = confirmBtn.dataset.confirmedName; // '' = denied, 'Name' = confirmed
-      markMeetingParticipant(name, email, host, meetingId, date, true, confirmedName);
-      return;
-    }
+
     const dncBtn = e.target.closest('[data-mr-action="toggle-no-count"]');
     if (dncBtn) {
-      const currentValue = dncBtn.dataset.current === 'true';
-      toggleDoesNotCount(dncBtn.dataset.meetingId || '', dncBtn.dataset.host || '', currentValue);
+      toggleDoesNotCount(dncBtn.dataset.meetingId || '', dncBtn.dataset.host || '', dncBtn.dataset.current === 'true');
+      return;
+    }
+
+    const loYesBtn = e.target.closest('[data-mr-action="lo-prompt-yes"]');
+    if (loYesBtn) {
+      saveParticipantLabel(loYesBtn.dataset.pkey || '', loYesBtn.dataset.name || '', 'lo');
+      return;
+    }
+
+    const loNoBtn = e.target.closest('[data-mr-action="lo-prompt-no"]');
+    if (loNoBtn) {
+      saveParticipantLabel(loNoBtn.dataset.pkey || '', loNoBtn.dataset.name || '', 'not_realtor');
+      return;
+    }
+
+    const toggleSearchBtn = e.target.closest('[data-mr-action="toggle-manual-search"]');
+    if (toggleSearchBtn) {
+      const sc = toggleSearchBtn.closest('.mr-participant')?.querySelector('[data-pipeline-search-container]');
+      if (sc) sc.style.display = sc.style.display === 'none' ? '' : 'none';
+      return;
+    }
+
+    const pipelineBtn = e.target.closest('[data-mr-action="pipeline-search"]');
+    if (pipelineBtn) {
+      _runSearch(pipelineBtn.closest('[data-pipeline-search-container]'), pipelineBtn.dataset.participant || '');
+      return;
+    }
+
+    const searchMatchBtn = e.target.closest('[data-mr-action="confirm-search-match"]');
+    if (searchMatchBtn) {
+      const pn = searchMatchBtn.dataset.participant || '';
+      const cn = searchMatchBtn.dataset.canonical || '';
+      if (pn && cn) {
+        const resultEl = searchMatchBtn.closest('.mr-pipeline-result');
+        if (resultEl) resultEl.innerHTML = '<span style="color:#1A9E5A;font-weight:700;font-size:10px">&#10003; Saved &mdash; applied to all meetings</span>';
+        confirmSearchMatch(pn, cn);
+      }
+      return;
+    }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const inp = e.target.closest('.mr-pipeline-input');
+    if (inp) {
+      e.preventDefault();
+      const container = inp.closest('[data-pipeline-search-container]');
+      if (container) _runSearch(container, container.dataset.participant || '');
     }
   });
 }
+
+// ── Exported public functions ─────────────────────────────────────────────────
 
 export async function loadMeetingReviews() {
   try {
@@ -140,55 +288,89 @@ export async function loadMeetingReviews() {
   } catch (_) {}
 }
 
-export async function markMeetingParticipant(name, email, host, meetingId, date, isRealtor, confirmedRealtorName) {
+export async function markMeetingParticipant(name, email, host, meetingId, date, isRealtor) {
   const key = name + '|' + meetingId;
   const existing = _reviewData.get(key) || {};
-  const newConfirmed = confirmedRealtorName !== undefined ? confirmedRealtorName : (existing.confirmedRealtorName ?? null);
-  _reviewData.set(key, { isRealtor, confirmedRealtorName: newConfirmed });
-  try {
-    const body = {
-      participant_name: name,
-      participant_email: email || null,
-      meeting_id: meetingId,
-      meeting_date: date || null,
-      host_name: host || null,
-      is_realtor: isRealtor
-    };
-    if (confirmedRealtorName !== undefined) {
-      // '' = denied (different person), 'Name' = confirmed, null cleared
-      body.confirmed_realtor_name = confirmedRealtorName === '' ? null : (confirmedRealtorName || null);
-    }
-    const result = await sbFetch('meeting_participants_review?on_conflict=participant_name,meeting_id', {
-      method: 'POST',
-      prefer: 'resolution=merge-duplicates',
-      headers: { 'Prefer': 'resolution=merge-duplicates' },
-      body: JSON.stringify(body)
-    });
-    console.log('[MR] saved:', result);
-  } catch (e) {
-    console.warn('[markMeetingParticipant] error:', e.message);
+  _reviewData.set(key, { isRealtor, confirmedRealtorName: existing.confirmedRealtorName ?? null });
+  const pKey = norm(name);
+  if (!isRealtor && !(state.zoomParticipantLabels || new Map()).has(pKey)) {
+    _pendingLOPrompt.add(pKey);
+  } else if (isRealtor) {
+    _pendingLOPrompt.delete(pKey);
   }
+  try {
+    await sbFetch('meeting_participants_review?on_conflict=participant_name,meeting_id', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({
+        participant_name: name,
+        participant_email: email || null,
+        meeting_id: meetingId,
+        meeting_date: date || null,
+        host_name: host || null,
+        is_realtor: isRealtor
+      })
+    });
+  } catch (_) {}
   renderMeetingsReview();
 }
 
 export async function toggleDoesNotCount(meetingId, hostName, currentValue) {
-  console.log('[MR] markDoesNotCount called:', meetingId, hostName, currentValue);
   const newVal = !currentValue;
   if (!state.doNotCountMeetings) state.doNotCountMeetings = new Set();
   if (newVal) { state.doNotCountMeetings.add(meetingId); } else { state.doNotCountMeetings.delete(meetingId); }
   try {
-    const body = { participant_name: '_meeting_', meeting_id: meetingId, host_name: hostName || null, does_not_count: newVal, is_realtor: null };
-    const result = await sbFetch('meeting_participants_review?on_conflict=participant_name,meeting_id', {
+    await sbFetch('meeting_participants_review?on_conflict=participant_name,meeting_id', {
       method: 'POST',
       headers: { 'Prefer': 'resolution=merge-duplicates' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        participant_name: '_meeting_',
+        meeting_id: meetingId,
+        host_name: hostName || null,
+        does_not_count: newVal,
+        is_realtor: null
+      })
     });
-    console.log('[MR] toggleDNC result:', result);
-  } catch (e) {
-    console.warn('[toggleDNC] error:', e.message);
+  } catch (_) {
     if (newVal) { state.doNotCountMeetings.delete(meetingId); } else { state.doNotCountMeetings.add(meetingId); }
   }
   renderMeetingsReview();
+}
+
+export async function saveParticipantLabel(participantKey, participantName, label, canonicalName = null) {
+  _pendingLOPrompt.delete(participantKey);
+  if (!state.zoomParticipantLabels) state.zoomParticipantLabels = new Map();
+  const canonical = canonicalName !== null ? canonicalName : (label === 'lo' ? participantName : null);
+  // 1. Update state optimistically
+  state.zoomParticipantLabels.set(participantKey, { label, canonical_name: canonical });
+  try {
+    // 2. Persist to Supabase
+    await sbFetch('zoom_participant_labels?on_conflict=participant_key', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({ participant_key: participantKey, participant_name: participantName, label, canonical_name: canonical })
+    });
+    if (label === 'lo') {
+      if (!state.loReferenceMap) state.loReferenceMap = new Map();
+      state.loReferenceMap.set(participantKey, participantName);
+      try {
+        await sbFetch('lo_reference?on_conflict=alias', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates' },
+          body: JSON.stringify({ alias: participantKey, canonical_name: participantName })
+        });
+      } catch (_) {}
+    }
+    // 3. Re-render only after successful save
+    renderMeetingsReview();
+  } catch (_) {
+    // Rollback state — do NOT re-render (chip stays as-is until user retries)
+    state.zoomParticipantLabels.delete(participantKey);
+  }
+}
+
+export async function confirmSearchMatch(participantName, canonicalName) {
+  await saveParticipantLabel(norm(participantName), participantName, 'realtor', canonicalName);
 }
 
 export function initMeetingsReview() {
@@ -198,18 +380,11 @@ export function initMeetingsReview() {
   const hostSel  = document.getElementById('mr-host');
   if (!yearSel) return;
 
-  // BD owners from the owners-list textarea — used to filter hosts
   const allowedOwners = (document.getElementById('owners-list') || { value: '' }).value
-    .split(',').map(s => s.trim()).filter(s => s !== '');
+    .split(',').map(s => s.trim()).filter(s => s !== '' && s !== '""' && s.replace(/[",\s]/g, '') !== '');
   const ownersNorm = new Set(allowedOwners.map(o => norm(o)));
 
-  console.log('[MR] allowed owners:', allowedOwners);
-  console.log('[MR] allowed norm set:', [...ownersNorm]);
-  console.log('[MR] unique hosts in zoomData:', [...new Set((state.zoomData || []).map(r => r.host_name))]);
-  console.log('[MR] hosts that pass filter:', [...new Set((state.zoomData || []).map(r => r.host_name))].filter(h => ownersNorm.has(norm(h?.trim() || ''))));
-
   const MS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
   const yearsSet  = new Set();
   const monthsSet = new Set();
   const hostsSet  = new Set();
@@ -223,21 +398,22 @@ export function initMeetingsReview() {
 
   const prevYear = yearSel.value;
   yearSel.innerHTML = '<option value="">All Years</option>' +
-    [...yearsSet].sort((a, b) => b - a).map(y => '<option value="' + y + '"' + (String(y) === prevYear ? ' selected' : '') + '>' + y + '</option>').join('');
+    [...yearsSet].sort((a, b) => b - a).map(y =>
+      '<option value="' + y + '"' + (String(y) === prevYear ? ' selected' : '') + '>' + y + '</option>'
+    ).join('');
 
   const prevMonth = monthSel.value;
   monthSel.innerHTML = '<option value="">All Months</option>' +
     [...monthsSet].sort().map(mm => {
-      const label = MS_FULL[parseInt(mm, 10) - 1] || mm;
-      return '<option value="' + mm + '"' + (mm === prevMonth ? ' selected' : '') + '>' + label + '</option>';
+      const lbl = MS_FULL[parseInt(mm, 10) - 1] || mm;
+      return '<option value="' + mm + '"' + (mm === prevMonth ? ' selected' : '') + '>' + lbl + '</option>';
     }).join('');
-
-  const filteredHosts = [...hostsSet].sort();
-  console.log('[MR] populating selector with:', filteredHosts);
 
   const prevHost = hostSel.value;
   hostSel.innerHTML = '<option value="">All BDs</option>' +
-    filteredHosts.map(h => '<option value="' + h + '"' + (h === prevHost ? ' selected' : '') + '>' + h + '</option>').join('');
+    [...hostsSet].sort().map(h =>
+      '<option value="' + h + '"' + (h === prevHost ? ' selected' : '') + '>' + h + '</option>'
+    ).join('');
 
   renderMeetingsReview();
 }
@@ -260,28 +436,23 @@ export function renderMeetingsReview() {
   const monthVal = (document.getElementById('mr-month') || {}).value || '';
   const hostVal  = (document.getElementById('mr-host')  || {}).value || '';
 
-  // Always restrict to BD owners — same parsing as initMeetingsReview
   const allowedOwners = (document.getElementById('owners-list') || { value: '' }).value
-    .split(',').map(s => s.trim()).filter(s => s !== '');
+    .split(',').map(s => s.trim()).filter(s => s !== '' && s !== '""' && s.replace(/[",\s]/g, '') !== '');
   const ownersNorm = new Set(allowedOwners.map(o => norm(o)));
 
-  // Build per-meeting groups from zoomData
+  // ── Build meeting groups ──
   const meetingMap = new Map();
   for (const r of (state.zoomData || [])) {
-    // Base filter: host must be a BD in the allowed list
     if (!ownersNorm.has(norm((r.host_name || '').trim()))) continue;
-
     const mk = r.month_key || '';
     if (yearVal  && mk.slice(0, 4) !== yearVal)  continue;
     if (monthVal && mk.slice(5, 7) !== monthVal) continue;
     if (hostVal  && (r.host_name || '').trim() !== hostVal) continue;
-
     const key = (r.meeting_id || '') + '|' + mk + '|' + (r.start_time || '');
     if (!meetingMap.has(key)) {
       meetingMap.set(key, {
         meeting_id: r.meeting_id || '',
         host_name: (r.host_name || '').trim(),
-        host_email: (r.host_email || '').trim(),
         start_time: parseZoomTime(r.start_time),
         duration: r.duration_minutes,
         topic: (r.topic || '').trim() || null,
@@ -296,19 +467,19 @@ export function renderMeetingsReview() {
     return;
   }
 
-  // Keep only meetings that have at least one external participant (is_guest === 'Yes')
-  // Sort meetings by date descending
+  const doNotCount  = state.doNotCountMeetings || new Set();
+  const globalLabels = state.zoomParticipantLabels || new Map();
+
   const meetings = [...meetingMap.values()]
     .filter(m => m.rows.some(r => r.is_guest === 'Yes'))
     .sort((a, b) => (b.start_time || 0) - (a.start_time || 0));
 
-  const MS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  const doNotCount = state.doNotCountMeetings || new Set();
+  // ── Per-meeting card renderer ──
   const rendered = meetings.map(m => {
     const isDNC = doNotCount.has(m.meeting_id);
+
     const dateStr = m.start_time
-      ? MS[m.start_time.getMonth()] + ' ' + m.start_time.getDate() + ', ' + m.start_time.getFullYear()
+      ? _MO[m.start_time.getMonth()] + ' ' + m.start_time.getDate() + ', ' + m.start_time.getFullYear()
       : '—';
     const timeStr = (() => {
       if (!m.start_time) return '';
@@ -316,126 +487,116 @@ export function renderMeetingsReview() {
       return (h % 12 || 12) + ':' + mi + ' ' + (h >= 12 ? 'PM' : 'AM');
     })();
 
-    const participants = m.rows.filter(r => r.participant_name && r.participant_name.trim());
-    const isGuest = p => p.is_guest === 'Yes';
-    const nHost = norm(m.host_name);
+    const allRows = m.rows.filter(r => r.participant_name && r.participant_name.trim());
+    const nHost   = norm(m.host_name);
 
-    const isLoParticipant = p => {
-      const nn = norm(p.participant_name || '');
-      return state.loReferenceMap.has(nn);
-    };
-
-    const internals = participants.filter(p => !isGuest(p));
-    const rawExternals = participants.filter(p => isGuest(p));
-
-    // Deduplicate externals: device entries like "Mariano's Z Fold6" collapse into clean name
-    const DEVICE_WORDS = ['iphone', 'ipad', 'android', 'fold', 'samsung', 'pixel', 'tablet', 'galaxy'];
-    const hasDeviceWord = n => { const nn = norm(n); return DEVICE_WORDS.some(w => nn.includes(w)); };
-    const extNameKey = n => norm(n.trim().split(/\s+/)[0].replace(/[’']s$/i, '').replace(/[’']/g, ''));
+    // ── Deduplicate externals ──
+    const rawExternals = allRows.filter(r => r.is_guest === 'Yes');
+    const extKey = n => norm(n.trim().split(/\s+/).slice(0, 2).join(' '));
     const extDeduped = [];
     const extSeen = new Map();
     for (const p of rawExternals) {
       const n = (p.participant_name || '').trim();
-      const key = extNameKey(n);
-      if (!extSeen.has(key)) {
-        extSeen.set(key, extDeduped.length);
+      const k = extKey(n);
+      if (!extSeen.has(k)) {
+        extSeen.set(k, extDeduped.length);
         extDeduped.push(p);
       } else {
-        const idx = extSeen.get(key);
-        if (hasDeviceWord((extDeduped[idx].participant_name || '').trim()) && !hasDeviceWord(n)) {
-          extDeduped[idx] = p; // replace device entry with clean name
-        }
+        const idx = extSeen.get(k);
+        const prev = (extDeduped[idx].participant_name || '').trim();
+        if (isDeviceName(prev) && !isDeviceName(n)) extDeduped[idx] = p;
       }
     }
-    const externals = extDeduped;
 
-    const renderInternalParticipant = p => {
-      const name = (p.participant_name || '').trim();
+    const loLabeledExternals = extDeduped.filter(p =>
+      globalLabels.get(norm((p.participant_name || '').trim()))?.label === 'lo'
+    );
+    const filteredExternals = extDeduped.filter(p =>
+      globalLabels.get(norm((p.participant_name || '').trim()))?.label !== 'lo'
+    );
+    const allInternals = allRows.filter(r => r.is_guest !== 'Yes').concat(loLabeledExternals);
+
+    // ── Render internal participant ──
+    const renderInternal = p => {
+      const name  = (p.participant_name || '').trim();
       const email = (p.participant_email || '').trim();
-      const isLO = isLoParticipant(p);
-      const isHost = norm(name) === nHost;
-      const badge = isLO
+      const nn    = norm(name);
+      const isHost = nn === nHost;
+      const isLO   = (state.loReferenceMap || new Map()).has(nn);
+      const badge  = isLO
         ? '<span class="mr-badge-lo">LO</span>'
-        : '<span class="mr-badge-internal">Internal</span>';
-      const hostTag = isHost ? '<span class="mr-badge-internal" style="background:#E8EEF8;color:#334466">Host</span>' : '';
+        : isHost
+          ? '<span class="mr-badge-internal" style="background:#E8EEF8;color:#334466">Host</span>'
+          : '<span class="mr-badge-internal">Internal</span>';
       return '<div class="mr-participant">' +
-        '<span class="mr-participant-name">' + escHtml(name) + (email ? ' <span class="mr-participant-email">' + escHtml(email) + '</span>' : '') + '</span>' +
-        '<span style="display:flex;gap:4px;align-items:center">' + hostTag + badge + '</span>' +
-        '</div>';
+        '<span class="mr-participant-name">' + escHtml(name) +
+          (email ? ' <span class="mr-participant-email">' + escHtml(email) + '</span>' : '') +
+        '</span>' + badge + '</div>';
     };
 
-    const renderExternalParticipant = p => {
-      const name = (p.participant_name || '').trim();
+    // ── Render external participant ──
+    const renderExternal = p => {
+      const name  = (p.participant_name || '').trim();
       const email = (p.participant_email || '').trim();
-      const reviewKey = name + '|' + m.meeting_id;
-      const reviewed = _reviewData.has(reviewKey);
-      const reviewEntry = reviewed ? (_reviewData.get(reviewKey) || {}) : {};
-      const isRealtor = reviewed ? reviewEntry.isRealtor : undefined;
-      const confirmedRealtorName = reviewed ? reviewEntry.confirmedRealtorName : undefined;
+      const pKey  = norm(name);
+      const globalLabel = globalLabels.get(pKey);
 
-      let status = '';
-      if (reviewed && isRealtor === true)  status = '<span class="mr-status-realtor">&#10003; Realtor</span>';
-      if (reviewed && isRealtor === false) status = '<span class="mr-status-not">&#10007; Not Realtor</span>';
+      const nameHtml = '<span class="mr-participant-name">' + escHtml(name) +
+        (email ? ' <span class="mr-participant-email">' + escHtml(email) + '</span>' : '') + '</span>';
 
-      // Pipeline chip — hidden only when explicitly marked not-realtor
-      let pipelineRow = '';
-      if (!(reviewed && isRealtor === false)) {
-        const match = findRealtorMatch(name, m.host_name);
-        const mDateP = m.start_time
-          ? m.start_time.getFullYear() + '-' + String(m.start_time.getMonth() + 1).padStart(2, '0') + '-' + String(m.start_time.getDate()).padStart(2, '0')
-          : '';
-        const confirmBase =
-          ' data-participant="' + escHtml(name) + '"' +
-          ' data-email="' + escHtml(email) + '"' +
-          ' data-host="' + escHtml(m.host_name) + '"' +
-          ' data-meeting-id="' + escHtml(m.meeting_id) + '"' +
-          ' data-date="' + escHtml(mDateP) + '"';
-
-        let chip = '';
-        if (confirmedRealtorName) {
-          // Confirmed partial match — look up leads for that name
-          const cLeads = (state.leadsData || []).filter(row =>
-            norm(String(getField(row, 'Referred By', 'referred by') || '').trim()) === norm(confirmedRealtorName)
-          );
-          const count = cLeads.length;
-          const dateLabel = _fmtLeadDate(_maxLeadDate(cLeads));
-          const tip = 'Confirmed match: ' + confirmedRealtorName + (count ? ' · ' + count + ' leads' : '') + (dateLabel ? ' · Last: ' + dateLabel : '');
-          chip = '<span class="mr-chip-pipeline mr-chip-pipeline-strong" title="' + escHtml(tip) + '">&#10003; In pipeline · ' + count + ' lead' + (count !== 1 ? 's' : '') + '</span>';
-
-        } else if (confirmedRealtorName === '') {
-          // Explicitly denied partial match
-          chip = '<span class="mr-chip-nopipeline">Not in pipeline</span>';
-
-        } else if (match.level === 'exact') {
-          const tip = match.ownerMatch ? 'Exact name match + BD matches host' : 'Exact name match in pipeline';
-          const cls = match.ownerMatch ? 'mr-chip-pipeline mr-chip-pipeline-strong' : 'mr-chip-pipeline';
-          const countStr = match.count + ' lead' + (match.count !== 1 ? 's' : '');
-          chip = '<span class="' + cls + '" title="' + escHtml(tip) + '">&#10003; In pipeline · ' + countStr + (match.ownerMatch ? ' · same BD' : '') + '</span>';
-
-        } else if (match.level === 'partial') {
-          const tip = match.ownerMatch ? 'Partial name match + BD matches host' : 'Partial name match found in pipeline';
-          const cls = match.ownerMatch ? 'mr-chip-partial mr-chip-partial-strong' : 'mr-chip-partial';
-          const countStr = match.count + ' lead' + (match.count !== 1 ? 's' : '');
-          const label = '~ Possible match: ' + escHtml(match.matchedName) + ' · ' + countStr + (match.ownerMatch ? ' · same BD' : '');
-          const cAttrs = confirmBase + ' data-confirmed-name="' + escHtml(match.matchedName) + '"';
-          const dAttrs = confirmBase + ' data-confirmed-name=""';
-          const confirmBtns =
-            '<div style="margin-top:3px;display:flex;gap:4px">' +
-            '<button class="mr-btn mr-btn-confirm-match" data-mr-action="confirm-match"' + cAttrs + '>&#10003; Same person</button>' +
-            '<button class="mr-btn mr-btn-deny-match" data-mr-action="confirm-match"' + dAttrs + '>&#10007; Different person</button>' +
-            '</div>';
-          chip = '<span class="' + cls + '" title="' + escHtml(tip) + '">' + label + '</span>' + confirmBtns;
-
-        } else if (reviewed && isRealtor === true) {
-          // Exact no-match and already marked as realtor
-          chip = '<span class="mr-chip-nopipeline">Not in pipeline</span>';
-        }
-
-        if (chip) pipelineRow = '<div class="mr-pipeline-row">' + chip + '</div>';
+      // LO prompt — after first "Not Realtor" click, before label is saved
+      if (_pendingLOPrompt.has(pKey)) {
+        return '<div class="mr-participant"><div style="width:100%">' +
+          '<div class="mr-participant-top">' + nameHtml +
+            '<span class="mr-status-not">&#10007; Not Realtor</span>' +
+          '</div>' +
+          '<div style="margin-top:6px;padding:8px 10px;background:#FFF9E6;border:1px solid #E8D59A;border-radius:6px;font-size:11px">' +
+            '<div style="font-weight:600;color:#854D0E;margin-bottom:6px">Is this person a Loan Officer?</div>' +
+            '<div style="display:flex;gap:6px">' +
+              '<button class="mr-btn mr-btn-realtor" data-mr-action="lo-prompt-yes" data-pkey="' + escHtml(pKey) + '" data-name="' + escHtml(name) + '">&#10003; Yes, mark as LO</button>' +
+              '<button class="mr-btn mr-btn-not" data-mr-action="lo-prompt-no" data-pkey="' + escHtml(pKey) + '" data-name="' + escHtml(name) + '">No, just not a realtor</button>' +
+            '</div>' +
+          '</div>' +
+        '</div></div>';
       }
 
+      // Not realtor — badge only, no actions
+      if (globalLabel?.label === 'not_realtor') {
+        return '<div class="mr-participant">' + nameHtml +
+          '<span class="mr-status-not" style="font-size:10px">&#10007; Not a realtor</span>' +
+          '</div>';
+      }
+
+      // ── Match chip ──
+      const match = findRealtorMatch(name, m.host_name);
+      let chip;
+      if (match.level === 'found') {
+        const cls = 'mr-chip-pipeline' + (match.ownerMatch ? ' mr-chip-pipeline-strong' : '');
+        const dates = (match.firstDate || match.lastDate)
+          ? ' &middot; first: ' + fmtDate(match.firstDate) + (match.lastDate ? ' &middot; last: ' + fmtDate(match.lastDate) : '')
+          : '';
+        chip = '<span class="' + cls + '">&#10003; ' + escHtml(match.canonicalName) +
+          ' &middot; ' + match.count + ' lead' + (match.count !== 1 ? 's' : '') + dates + '</span>';
+      } else if (match.level === 'salesforce') {
+        chip = '<span style="display:inline-flex;align-items:center;font-size:10px;font-weight:600;color:#1E4D7B;background:#EBF4FF;border:1px solid #BFDBFE;border-radius:20px;padding:2px 8px">' +
+          'In Salesforce &middot; ' + escHtml(match.canonicalName) + ' &middot; no leads yet' +
+          (match.owner ? ' &middot; Owner: ' + escHtml(match.owner) : '') + '</span>';
+      } else {
+        // level === 'none' or unexpected 'skip' (safety net)
+        chip = '<span class="mr-chip-nopipeline">Not found in database</span>';
+      }
+
+      const changeBtn = match.level !== 'none'
+        ? ' <button style="font-size:10px;color:#5577CC;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline" data-mr-action="toggle-manual-search">[Change]</button>'
+        : '';
+
+      // ── Per-meeting review state ──
+      const revEntry = _reviewData.get(name + '|' + m.meeting_id);
+      const isRealtor = revEntry ? revEntry.isRealtor : undefined;
       const mDate = m.start_time
-        ? m.start_time.getFullYear() + '-' + String(m.start_time.getMonth() + 1).padStart(2, '0') + '-' + String(m.start_time.getDate()).padStart(2, '0')
+        ? m.start_time.getFullYear() + '-' +
+          String(m.start_time.getMonth() + 1).padStart(2, '0') + '-' +
+          String(m.start_time.getDate()).padStart(2, '0')
         : '';
       const dataAttrs =
         ' data-mr-action="mark-participant"' +
@@ -445,70 +606,84 @@ export function renderMeetingsReview() {
         ' data-meeting-id="' + escHtml(m.meeting_id) + '"' +
         ' data-date="' + escHtml(mDate) + '"';
 
+      let status = '';
+      if (revEntry && isRealtor === true)  status = '<span class="mr-status-realtor">&#10003; Realtor</span>';
+      if (revEntry && isRealtor === false) status = '<span class="mr-status-not">&#10007; Not Realtor</span>';
+
       let actions;
-      if (reviewed && isRealtor === true) {
-        actions = '<button class="mr-btn mr-btn-secondary"' + dataAttrs + ' data-is-realtor="false">&#10007; Mark as Not Realtor</button>';
-      } else if (reviewed && isRealtor === false) {
-        actions = '<button class="mr-btn mr-btn-secondary"' + dataAttrs + ' data-is-realtor="true">&#10003; Mark as Realtor</button>';
+      if (revEntry && isRealtor === true) {
+        actions = '<button class="mr-btn mr-btn-secondary"' + dataAttrs + ' data-is-realtor="false">&#10007; Not Realtor</button>';
+      } else if (revEntry && isRealtor === false) {
+        actions = '<button class="mr-btn mr-btn-secondary"' + dataAttrs + ' data-is-realtor="true">&#10003; Realtor</button>';
       } else {
         actions = '<button class="mr-btn mr-btn-realtor"' + dataAttrs + ' data-is-realtor="true">&#10003; Realtor</button>' +
                   '<button class="mr-btn mr-btn-not"' + dataAttrs + ' data-is-realtor="false">&#10007; Not Realtor</button>';
       }
 
-      return '<div class="mr-participant">' +
-        '<div class="mr-participant-top">' +
-          '<span class="mr-participant-name">' + escHtml(name) + (email ? ' <span class="mr-participant-email">' + escHtml(email) + '</span>' : '') + '</span>' +
-          '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + status + '<span class="mr-participant-actions">' + actions + '</span></span>' +
+      // ── Search container ──
+      const showSearch = match.level === 'none' || isDeviceName(name);
+      const searchContainer =
+        '<div data-pipeline-search-container data-participant="' + escHtml(name) + '" data-host="' + escHtml(m.host_name) + '"' +
+        (!showSearch ? ' style="display:none"' : '') + '>' +
+        '<div style="display:flex;gap:4px;align-items:center">' +
+        '<input type="text" class="mr-pipeline-input" placeholder="Search in database by name" style="font-size:10px;padding:3px 8px;border:1px solid #D0DAF0;border-radius:4px;flex:1;min-width:0">' +
+        '<button class="mr-btn" data-mr-action="pipeline-search" data-participant="' + escHtml(name) + '" data-host="' + escHtml(m.host_name) + '" style="font-size:10px;padding:2px 8px">&#128269; Search</button>' +
         '</div>' +
-        pipelineRow +
+        '<div class="mr-pipeline-result" style="margin-top:4px"></div>' +
+        '</div>';
+
+      return '<div class="mr-participant">' +
+        '<div style="width:100%;display:flex;flex-direction:column;gap:5px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">' +
+            nameHtml + (status ? '<span>' + status + '</span>' : '') +
+          '</div>' +
+          '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">' + chip + changeBtn + '</div>' +
+          '<div><span class="mr-participant-actions">' + actions + '</span></div>' +
+          searchContainer +
+        '</div>' +
         '</div>';
     };
 
+    // ── DNC button ──
     const dncStyle = 'font-size:10px;font-weight:600;border:1.5px solid ' +
       (isDNC ? '#D4A000' : '#D0DAF0') + ';border-radius:5px;padding:2px 8px;cursor:pointer;background:' +
       (isDNC ? '#FFFBEB' : 'white') + ';color:' + (isDNC ? '#854D0E' : '#8899BB') + ';white-space:nowrap;flex-shrink:0';
     const dncBtnHtml = '<button data-mr-action="toggle-no-count" data-meeting-id="' + escHtml(m.meeting_id) +
       '" data-host="' + escHtml(m.host_name) + '" data-current="' + isDNC + '" style="' + dncStyle + '">' +
       (isDNC ? '&#8856; No cuenta' : '&#8856; Marcar &ldquo;No cuenta&rdquo;') + '</button>';
-    const cardHtml = '<div class="mr-card" style="' + (isDNC ? 'border-color:#E8D59A' : '') + '">' +
+
+    const html = '<div class="mr-card" style="' + (isDNC ? 'border-color:#E8D59A' : '') + '">' +
       '<div class="mr-card-header">' +
         (m.topic ? '<div class="mr-card-topic">' + escHtml(m.topic) + '</div>' : '') +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
           '<div class="mr-card-meta">' +
             '<span class="mr-meta-date">' + escHtml(dateStr) + '</span>' +
             (timeStr ? ' <span class="mr-meta-time">' + escHtml(timeStr) + '</span>' : '') +
-            ' &nbsp;·&nbsp; <span class="mr-meta-host">' + escHtml(m.host_name) + '</span>' +
-            (m.duration ? ' &nbsp;·&nbsp; <span class="mr-meta-duration">' + m.duration + ' min</span>' : '') +
-            ' &nbsp;·&nbsp; <span class="mr-meta-count">' + participants.length + ' participant' + (participants.length !== 1 ? 's' : '') + '</span>' +
+            ' &nbsp;&middot;&nbsp; <span class="mr-meta-host">' + escHtml(m.host_name) + '</span>' +
+            (m.duration ? ' &nbsp;&middot;&nbsp; <span class="mr-meta-duration">' + m.duration + ' min</span>' : '') +
+            ' &nbsp;&middot;&nbsp; <span class="mr-meta-count">' + allRows.length + ' participant' + (allRows.length !== 1 ? 's' : '') + '</span>' +
           '</div>' +
           dncBtnHtml +
         '</div>' +
       '</div>' +
-      (internals.length
-        ? '<div class="mr-section">' +
-            '<div class="mr-section-title">Internal Participants</div>' +
-            '<div class="mr-participants-list">' + internals.map(renderInternalParticipant).join('') + '</div>' +
-          '</div>'
+      (allInternals.length
+        ? '<div class="mr-section"><div class="mr-section-title">Internal Participants</div>' +
+          '<div class="mr-participants-list">' + allInternals.map(renderInternal).join('') + '</div></div>'
         : '') +
-      (externals.length
-        ? '<div class="mr-section">' +
-            '<div class="mr-section-title">External Participants</div>' +
-            '<div class="mr-participants-list">' + externals.map(renderExternalParticipant).join('') + '</div>' +
-          '</div>'
+      (filteredExternals.length
+        ? '<div class="mr-section"><div class="mr-section-title">External Participants</div>' +
+          '<div class="mr-participants-list">' + filteredExternals.map(renderExternal).join('') + '</div></div>'
         : '') +
-    '</div>';
-    return { isDNC, html: cardHtml };
+      '</div>';
+
+    return { isDNC, html };
   });
 
-  const activeHtml = rendered.filter(r => !r.isDNC).map(r => r.html).join('');
-  const dncItems   = rendered.filter(r =>  r.isDNC);
+  const activeHtml    = rendered.filter(r => !r.isDNC).map(r => r.html).join('');
+  const dncItems      = rendered.filter(r =>  r.isDNC);
   const dncSectionHtml = dncItems.length
     ? '<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:#854D0E;padding:6px 2px;list-style:none;display:flex;align-items:center;gap:6px;user-select:none"><span>&#9654;</span> Follow-up meetings (not counted) &mdash; ' + dncItems.length + '</summary><div style="margin-top:8px">' + dncItems.map(r => r.html).join('') + '</div></details>'
     : '';
 
   content.innerHTML = activeHtml + dncSectionHtml;
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
