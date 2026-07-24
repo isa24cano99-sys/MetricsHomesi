@@ -55,6 +55,54 @@ function buildRealtorCache(realtorKeys, inactiveCutoff) {
   return cache;
 }
 
+const _unknownCache = new Map();
+
+function unknownRealtorOpps(opps) {
+  const rom = state.realtorOwnerMap || new Map();
+  return opps.filter(o => {
+    const ref = getField(o, 'Referred By', 'referred by');
+    if (!ref || !String(ref).trim()) return true;
+    return !rom.has(norm(String(ref)));
+  });
+}
+
+function unknownWarningHtml(cacheKey, opps) {
+  const unk = unknownRealtorOpps(opps);
+  if (!unk.length) return '';
+  _unknownCache.set(cacheKey, unk);
+  return '<div class="pipeline-unknown-warning" data-unknown-key="' + cacheKey.replace(/"/g, '&quot;') + '">' +
+    '<span>⚠</span> ' + unk.length + ' opp' + (unk.length !== 1 ? 's' : '') + ' with unknown realtor — click to review</div>';
+}
+
+function showUnknownRealtorDetail(cacheKey) {
+  const opps = _unknownCache.get(cacheKey);
+  if (!opps || !opps.length) return;
+  const head = '<tr><th>Loan #</th><th>Opportunity Name</th><th>Stage</th><th>Created Date</th><th>Loan Amount</th></tr>';
+  const rowsOut = opps.map(row => {
+    const lnNum = String(getField(row, 'Loan #', 'loan #') || '—').trim();
+    const oppName = String(getField(row, 'Opportunity Name', 'opportunity name') || '—').trim();
+    const stg = String(getField(row, 'Stage', 'stage') || '—').trim();
+    const created = parseDate(getField(row, 'Created Date', 'created date', 'create date'));
+    const amt = getField(row, 'Loan Amount', 'loan amount');
+    const amtFmt = amt ? '$' + Number(amt).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+    return { lnNum, oppName, stg, created, amt, amtFmt };
+  });
+  const body = rowsOut.map(e =>
+    '<tr>' +
+      '<td style="font-family:monospace;font-size:10px;color:#556080">' + e.lnNum + '</td>' +
+      '<td style="font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis" title="' + e.oppName + '">' + e.oppName + '</td>' +
+      '<td style="font-size:11px">' + e.stg + '</td>' +
+      '<td class="dt">' + fmtDate(e.created) + '</td>' +
+      '<td class="modal-amount">' + e.amtFmt + '</td>' +
+    '</tr>'
+  ).join('');
+  const csvData = [
+    ['Loan #', 'Opportunity Name', 'Stage', 'Created Date', 'Loan Amount'],
+    ...rowsOut.map(e => [e.lnNum, e.oppName, e.stg, fmtDate(e.created), e.amt || ''])
+  ];
+  openModal('Unknown Realtor — Review', opps.length + ' opp' + (opps.length !== 1 ? 's' : '') + ' with unmatched realtor', head, body, csvData);
+}
+
 export function initPipeline() {
   const defaultCutoff = new Date();
   defaultCutoff.setUTCDate(defaultCutoff.getUTCDate() - 60);
@@ -125,9 +173,9 @@ export function renderPipeline() {
   }).filter(Boolean))];
   const realtorCache = buildRealtorCache(allRealtorKeys, inactiveCutoff);
 
-  document.getElementById('pl-pipeline-content').innerHTML = '<div class="pipeline-owners-grid">' + owners.map(owner => {
-    const opps = byOwner.get(owner) || [];
+  const stageRank = { 'need analysis': 0, 'needs analysis': 0, 'qualification': 1, 'proposal': 2, 'negotiation': 3 };
 
+  function buildCard(label, opps, ownerAttr, extraClass) {
     const stageMap = new Map();
     for (const row of opps) {
       const stage = String(getField(row, 'Stage', 'stage') || '—').trim();
@@ -153,36 +201,36 @@ export function renderPipeline() {
       else unknownCount++;
     }
 
-    const stageRank = { 'need analysis': 0, 'needs analysis': 0, 'qualification': 1, 'proposal': 2, 'negotiation': 3 };
     const stageRows = [...stageMap.entries()]
       .sort(([a], [b]) => {
-        const norm = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
-        const ai = stageRank[norm(a)] ?? 999;
-        const bi = stageRank[norm(b)] ?? 999;
+        const nrm = s => s.toLowerCase().replace(/\s+/g, ' ').trim();
+        const ai = stageRank[nrm(a)] ?? 999;
+        const bi = stageRank[nrm(b)] ?? 999;
         return ai - bi;
       })
       .map(([stage, rows]) => {
-      const stageAmt = rows.reduce((s, r) => {
-        const a = parseFloat(getField(r, 'Loan Amount', 'loan amount') || 0);
-        return s + (isNaN(a) ? 0 : a);
-      }, 0);
-      const fmtAmt = stageAmt ? '$' + stageAmt.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '';
-      return '<div class="pipeline-stage-row" data-pl-owner="' + owner.replace(/"/g, '&quot;') + '" data-pl-stage="' + stage.replace(/"/g, '&quot;') + '">' +
-        '<div>' +
-          '<div class="pipeline-stage-row-name">' + stage + '</div>' +
-          (fmtAmt ? '<div class="pipeline-stage-row-sub">' + fmtAmt + '</div>' : '') +
-        '</div>' +
-        '<span class="pipeline-stage-row-chip">' + rows.length + '</span>' +
-      '</div>';
-    }).join('');
+        const stageAmt = rows.reduce((s, r) => {
+          const a = parseFloat(getField(r, 'Loan Amount', 'loan amount') || 0);
+          return s + (isNaN(a) ? 0 : a);
+        }, 0);
+        const fmtAmt = stageAmt ? '$' + stageAmt.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '';
+        return '<div class="pipeline-stage-row" data-pl-owner="' + ownerAttr.replace(/"/g, '&quot;') + '" data-pl-stage="' + stage.replace(/"/g, '&quot;') + '">' +
+          '<div>' +
+            '<div class="pipeline-stage-row-name">' + stage + '</div>' +
+            (fmtAmt ? '<div class="pipeline-stage-row-sub">' + fmtAmt + '</div>' : '') +
+          '</div>' +
+          '<span class="pipeline-stage-row-chip">' + rows.length + '</span>' +
+        '</div>';
+      }).join('');
 
     const fmtTotal = totalAmt ? '$' + totalAmt.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+    const warning = unknownWarningHtml('pl:' + label, opps);
 
-    return '<div class="pl-owner-card">' +
+    return '<div class="pl-owner-card' + (extraClass ? ' ' + extraClass : '') + '">' +
       '<div class="pl-owner-header">' +
-        '<div class="pl-owner-avatar">' + initials(owner) + '</div>' +
+        '<div class="pl-owner-avatar">' + initials(label) + '</div>' +
         '<div class="pl-owner-info">' +
-          '<div class="pl-owner-name">' + owner + '</div>' +
+          '<div class="pl-owner-name">' + label + '</div>' +
           '<div class="pl-owner-meta">' + opps.length + ' open opp' + (opps.length !== 1 ? 's' : '') + ' · ' + realtorKeys.length + ' realtor' + (realtorKeys.length !== 1 ? 's' : '') + '</div>' +
         '</div>' +
         '<div class="pl-owner-total">' + fmtTotal + '</div>' +
@@ -192,14 +240,24 @@ export function renderPipeline() {
         '<span class="pl-rs-item pl-chip-inactive"><i class="ti ti-clock"></i> ' + inactiveCount + ' inactive</span>' +
         (unknownCount ? '<span class="pl-rs-item pl-chip-unknown"><i class="ti ti-help"></i> ' + unknownCount + ' no data</span>' : '') +
       '</div>' +
+      warning +
       '<div class="pipeline-stages-list">' + stageRows + '</div>' +
     '</div>';
-  }).join('') + '</div>';
+  }
+
+  const allOpps = owners.flatMap(o => byOwner.get(o) || []);
+  const allCard = buildCard('ALL BDs', allOpps, 'ALL', 'all-bds');
+  const ownerCards = owners.map(o => buildCard(o, byOwner.get(o) || [], o, '')).join('');
+
+  document.getElementById('pl-pipeline-content').innerHTML =
+    '<div class="pipeline-owners-grid">' + allCard + ownerCards + '</div>';
 }
 
 export function showPipelineStageDetail(owner, stage) {
   const inactiveCutoff = getInactiveCutoff();
   const today = new Date();
+  const isAll = owner === 'ALL';
+  const allowedNorm = new Set(getAllowedOwners().map(o => norm(o)));
 
   const rows = (state.oppData || []).filter(row => {
     const stageLc = String(getField(row, 'Stage', 'stage') || '').trim().toLowerCase();
@@ -211,7 +269,9 @@ export function showPipelineStageDetail(owner, stage) {
     if (rowLender.includes('city lending inc')) return false;
     const rowOwner = String(getField(row, 'Opportunity Owner', 'opportunity owner') || '').trim();
     const rowStage = String(getField(row, 'Stage', 'stage') || '—').trim();
-    if (rowOwner !== owner || rowStage !== stage) return false;
+    if (rowStage !== stage) return false;
+    if (isAll) { if (!allowedNorm.has(norm(rowOwner))) return false; }
+    else if (rowOwner !== owner) return false;
     return true;
   });
   if (!rows.length) return;
@@ -231,30 +291,33 @@ export function showPipelineStageDetail(owner, stage) {
     const oppName = String(getField(row, 'Opportunity Name', 'opportunity name') || '—').trim();
     const lnNum = String(getField(row, 'Loan #', 'loan #') || '—').trim();
     const branch = String(getField(row, 'Branch', 'branch') || '').trim() || '—';
-    const loanOfficer = String(getField(row, 'Loan Officer', 'loan officer') || '').trim() || '—';
-    const currentMilestone = String(getField(row, 'Current Milestone', 'current milestone') || '').trim() || '—';
-    const loanStatus = String(getField(row, 'Loan Status', 'loan status') || '').trim() || '—';
+    const loanOfficer = String(getField(row, 'Loan Officers', 'loan officers', 'loan_officer', 'Loan Officer', 'loan officer') || '').trim() || '—';
+    const currentMilestone = String(getField(row, 'Current Milestone', 'current milestone', 'current_milestone') || '').trim() || '—';
     const oppCd = parseDate(getField(row, 'Created Date', 'created date', 'create date'));
-    const preApprovalDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'Pre-Approval Date', 'pre-approval date'));
-    const ratifiedDate = parseDate(getField(row, 'Ratified Date', 'ratified date'));
-    const estClosingDate = parseDate(getField(row, 'Est. Closing Date', 'est. closing date', 'Estimated Closing Date', 'estimated closing date', 'Close Date', 'close date'));
+    const preApprovalDate = parseDate(getField(row, 'Pre-Approved Date', 'pre-approved date', 'pre_approved_date', 'Pre-Approval Date', 'pre-approval date'));
+    const ratifiedDate = parseDate(getField(row, 'Ratified Date', 'ratified date', 'ratified_date'));
+    const estClosingDate = parseDate(getField(row, 'Est. Closing Date', 'est. closing date', 'est_closing_date', 'estimated closing date', 'Estimated Closing Date', 'Close Date', 'close date'));
     const amt = getField(row, 'Loan Amount', 'loan amount');
     const amtFmt = amt ? '$' + Number(amt).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 
     const daysOpen = oppCd ? Math.floor((today - oppCd) / 86400000) : null;
-    return { row, realtorName, status: cached.status, daysSince: cached.daysSince, lnNum, oppName, branch, loanOfficer, currentMilestone, loanStatus, oppCd, daysOpen, preApprovalDate, ratifiedDate, estClosingDate, amt, amtFmt };
+    return { row, realtorName, status: cached.status, daysSince: cached.daysSince, lnNum, oppName, branch, loanOfficer, currentMilestone, oppCd, daysOpen, preApprovalDate, ratifiedDate, estClosingDate, amt, amtFmt };
   });
 
   const order = { inactive: 0, active: 1, unknown: 2 };
   enriched.sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2));
 
-  const head = '<tr>' +
-    '<th>Realtor</th><th>Status</th><th>Days Since Last Lead</th>' +
-    '<th>Loan #</th><th>Opportunity Name</th><th>Branch</th><th>Loan Officer</th>' +
-    '<th>Current Milestone</th><th>Loan Status</th>' +
-    '<th>Created Date</th><th>Days Open</th><th>Pre-Approval Date</th><th>Ratified Date</th><th>Est. Closing Date</th>' +
-    '<th>Loan Amount</th>' +
-  '</tr>';
+  const head =
+    '<tr>' +
+      '<th colspan="3" style="background:#1D6FA4;color:white;text-align:center">Realtor</th>' +
+      '<th colspan="11" style="background:#0D4B7A;color:white;text-align:center">Loan</th>' +
+    '</tr>' +
+    '<tr>' +
+      '<th>Realtor Name</th><th>Realtor Status</th><th>Days Since Last Lead</th>' +
+      '<th>Loan #</th><th>Opportunity Name</th><th>Branch</th><th>Loan Officer</th>' +
+      '<th>Current Milestone</th><th>Opp. Created Date</th><th>Days Open as Opportunity</th>' +
+      '<th>Pre-Approval Date</th><th>Ratified Date</th><th>Est. Closing Date</th><th>Loan Amount</th>' +
+    '</tr>';
 
   const body = enriched.map(e => {
     const daysTxt = e.daysSince != null ? e.daysSince + 'd' : '—';
@@ -268,7 +331,6 @@ export function showPipelineStageDetail(owner, stage) {
       '<td style="font-size:11px">' + e.branch + '</td>' +
       '<td style="font-size:11px">' + e.loanOfficer + '</td>' +
       '<td style="font-size:11px">' + e.currentMilestone + '</td>' +
-      '<td style="font-size:11px">' + e.loanStatus + '</td>' +
       '<td class="dt">' + fmtDate(e.oppCd) + '</td>' +
       '<td style="text-align:center;font-weight:700;color:' + (e.daysOpen == null ? '#8899BB' : e.daysOpen > 180 ? '#A32D2D' : e.daysOpen > 90 ? '#856400' : '#085041') + '">' + (e.daysOpen != null ? e.daysOpen + 'd' : '—') + '</td>' +
       '<td class="dt">' + (e.preApprovalDate ? fmtDate(e.preApprovalDate) : '—') + '</td>' +
@@ -285,12 +347,11 @@ export function showPipelineStageDetail(owner, stage) {
   const totalFmt = totalAmt ? '$' + totalAmt.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 
   const csvData = [
-    ['Realtor', 'Status', 'Days Since Last Lead', 'Loan #', 'Opportunity Name', 'Branch', 'Loan Officer', 'Current Milestone', 'Loan Status', 'Created Date', 'Days Open', 'Pre-Approval Date', 'Ratified Date', 'Est. Closing Date', 'Loan Amount'],
+    ['Realtor Name', 'Realtor Status', 'Days Since Last Lead', 'Loan #', 'Opportunity Name', 'Branch', 'Loan Officer', 'Current Milestone', 'Opp. Created Date', 'Days Open as Opportunity', 'Pre-Approval Date', 'Ratified Date', 'Est. Closing Date', 'Loan Amount'],
     ...enriched.map(e => [
       e.realtorName, e.status, e.daysSince ?? '', e.lnNum, e.oppName,
       e.branch === '—' ? '' : e.branch, e.loanOfficer === '—' ? '' : e.loanOfficer,
       e.currentMilestone === '—' ? '' : e.currentMilestone,
-      e.loanStatus === '—' ? '' : e.loanStatus,
       fmtDate(e.oppCd),
       e.daysOpen ?? '',
       e.preApprovalDate ? fmtDate(e.preApprovalDate) : '',
@@ -301,7 +362,7 @@ export function showPipelineStageDetail(owner, stage) {
   ];
 
   openModal(
-    owner + ' — ' + stage,
+    (isAll ? 'ALL BDs' : owner) + ' — ' + stage,
     enriched.length + ' opportunit' + (enriched.length !== 1 ? 'ies' : 'y') + ' · Total: ' + totalFmt,
     head, body, csvData
   );
@@ -468,6 +529,7 @@ export function renderClosedWon() {
         '<span class="pl-rs-item pl-chip-inactive"><i class="ti ti-clock"></i> ' + inactiveC + ' inactive</span>' +
         (unknownC ? '<span class="pl-rs-item pl-chip-unknown"><i class="ti ti-help"></i> ' + unknownC + ' no data</span>' : '') +
       '</div>' +
+      unknownWarningHtml('cw:' + owner, opps) +
       '<div class="pipeline-stages-list">' + branchRowsHtml + '</div>' +
     '</div>';
   }).join('') + '</div>';
@@ -581,6 +643,11 @@ export function showClosedWonDetail(owner) {
 }
 
 document.addEventListener('click', e => {
+  const unk = e.target.closest('[data-unknown-key]');
+  if (unk) {
+    showUnknownRealtorDetail(unk.getAttribute('data-unknown-key'));
+    return;
+  }
   const el = e.target.closest('[data-cw-detail-owner]');
   if (!el) return;
   showClosedWonDetail(el.getAttribute('data-cw-detail-owner'));

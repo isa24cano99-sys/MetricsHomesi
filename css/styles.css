@@ -259,6 +259,9 @@ thead tr:hover th{background:var(--hs-navy) !important;}
 .pipeline-stage-row-name{font-size:12px;font-weight:600;color:var(--hs-navy)}
 .pipeline-stage-row-sub{font-size:10px;color:#8899BB;margin-top:2px}
 .pipeline-stage-row-chip{display:inline-flex;align-items:center;justify-content:center;min-width:32px;padding:2px 8px;border-radius:999px;font-family:'Barlow',sans-serif;font-weight:700;font-size:12px;background:#E8EDF5;color:var(--hs-navy)}
+.pl-owner-card.all-bds{background:#E8F4FD;border:2px solid #90CAF9}
+.pl-owner-card.all-bds .pl-owner-header{background:#1565C0;border-radius:8px;padding:8px 10px;margin:-4px -6px 10px}
+.pipeline-unknown-warning{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#856400;background:#FFFBE6;border:1px solid #F5C518;border-radius:6px;padding:4px 10px;cursor:pointer;margin:6px 0 8px}
 .pl-grand-total{display:flex;justify-content:space-between;align-items:center;background:var(--hs-navy);color:white;border-radius:10px;padding:13px 18px;margin-top:14px;font-family:'Barlow',sans-serif;font-weight:700;font-size:13px}
 .pl-grand-amt{font-size:18px;color:var(--hs-gold)}
 .pl-cw-summary{background:#F7F9FC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px;margin-bottom:14px}
