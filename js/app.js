@@ -6,7 +6,7 @@ import { setMode, renderTable, populateFilters, renderSummary, srt, onModeSelect
 import { renderScorecard, refreshScorecard, clearScorecardFilters, renderRankings } from './scorecard.js';
 import { renderAssignCards, clearAssignFilters, confirmAssign, unconfirm, updateAssign, saveAllAssignments, showAssignView, renderUnassigned, saveUnassigned, loadSfReference, applyUaSuggestion } from './assignments.js';
 import { renderLog } from './log.js';
-import { exportCSV, exportMasterCSV, exportLog, dl } from './export.js';
+import { exportCSV, exportMasterCSV, exportLog, exportManualAssignments, dl } from './export.js';
 import { showScorecardDetail, showLeadDetail, showOppDetail, showAllLeadsForRealtor, showConvertedLeadsDetail, openModal, closeModal } from './modal.js';
 import { initPipeline, renderPipeline, renderClosedWon, clearPipelineFilters, clearClosedWonFilters, showPipelineStageDetail, downloadCwOwnerCsv } from './pipeline.js';
 import { initTrends, renderTrends } from './trends.js';
@@ -419,7 +419,7 @@ Object.assign(window, {
   clearScorecardFilters, refreshScorecard, renderRankings,
   renderAssignCards, saveAllAssignments, clearAssignFilters, confirmAssign, unconfirm, updateAssign,
   showAssignView, renderUnassigned, saveUnassigned, loadSfReference, applyUaSuggestion,
-  exportCSV, exportMasterCSV, exportLog, dl,
+  exportCSV, exportMasterCSV, exportLog, exportManualAssignments, dl,
   closeModal, showAllLeadsForRealtor,
   handleFile,
   renderPipeline, renderClosedWon, clearPipelineFilters, clearClosedWonFilters, showPipelineStageDetail, renderTrends,

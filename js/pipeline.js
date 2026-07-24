@@ -202,11 +202,16 @@ export function showPipelineStageDetail(owner, stage) {
   const today = new Date();
 
   const rows = (state.oppData || []).filter(row => {
+    const stageLc = String(getField(row, 'Stage', 'stage') || '').trim().toLowerCase();
+    if (!stageLc) return false;
+    if (stageLc === 'closed won' || stageLc === 'closed lost') return false;
+    const currStatus = String(getField(row, 'Current Status', 'current status', 'current_status') || '').trim().toLowerCase();
+    if (currStatus.includes('archive loan')) return false;
+    const rowLender = String(getField(row, 'Lender', 'lender') || '').trim().toLowerCase();
+    if (rowLender.includes('city lending inc')) return false;
     const rowOwner = String(getField(row, 'Opportunity Owner', 'opportunity owner') || '').trim();
     const rowStage = String(getField(row, 'Stage', 'stage') || '—').trim();
     if (rowOwner !== owner || rowStage !== stage) return false;
-    const rowLender = String(getField(row, 'Lender', 'lender') || '').trim().toLowerCase();
-    if (rowLender.includes('city lending inc')) return false;
     return true;
   });
   if (!rows.length) return;

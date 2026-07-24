@@ -6,8 +6,12 @@ export async function sbFetch(path, opts = {}) {
   const headers = {
     'apikey': SB_KEY,
     'Authorization': 'Bearer ' + SB_KEY,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept-Profile': 'b2b_metrics'
   };
+  if (opts.method && opts.method !== 'GET') {
+    headers['Content-Profile'] = 'b2b_metrics';
+  }
   if (opts.prefer) headers['Prefer'] = opts.prefer;
   const res = await fetch(SB_URL + '/rest/v1/' + path, {
     ...opts,

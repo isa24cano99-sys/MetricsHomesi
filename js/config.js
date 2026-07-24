@@ -1,5 +1,7 @@
-export const SB_URL = 'https://xxayufvjvxfyxgqepaov.supabase.co';
-export const SB_KEY = 'sb_publishable_SpckGJgWyFYcTr99HpRz7Q_PsbVHbQi';
+export const SB_URL = 'https://eykplgdwlqpybzkzbpmu.supabase.co';
+// Isa: ir a Settings → API → anon public en el nuevo proyecto corporativo
+// y reemplazar el valor de abajo por la anon key real.
+export const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5a3BsZ2R3bHFweWJ6a3picG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NDc0NzIsImV4cCI6MjA5MDAyMzQ3Mn0.1pjdcQSWw7GSIckyAYVoxFFrjRD40PCjTN1MtVlVLpY';
 
 export const BADGE = {
   'Hunting New': 'b-hn',

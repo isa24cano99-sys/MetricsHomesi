@@ -1,11 +1,44 @@
 import { state } from './state.js';
 import { fmtDate } from './utils.js';
+import { sbFetch } from './supabase.js';
 
 export function dl(rows, fn) {
   const csv = rows.map(r => r.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = fn;
+  a.click();
+}
+
+export async function exportManualAssignments() {
+  let rows;
+  try {
+    rows = await sbFetch('master_assignments?source=eq.manual&select=realtor_key,realtor_name,owner,branch,confirmed,updated_at&order=owner.asc,realtor_name.asc');
+  } catch (e) {
+    alert('Error exporting manual assignments: ' + e.message);
+    return;
+  }
+  if (!rows || !rows.length) {
+    alert('No manual assignments found to export.');
+    return;
+  }
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const cols = ['realtor_key', 'realtor_name', 'owner', 'branch', 'confirmed', 'updated_at'];
+  const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const lines = [
+    '# Homesi B2B Metrics — Manual Assignments Backup',
+    '# Exported: ' + now.toISOString(),
+    '# DO NOT EDIT realtor_key column — it is',
+    '# the primary key used for matching',
+    '# source=manual rows only',
+    cols.join(','),
+    ...rows.map(r => cols.map(c => esc(r[c])).join(','))
+  ];
+  const csv = lines.join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'manual_assignments_' + today + '.csv';
   a.click();
 }
 
